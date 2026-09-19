@@ -1,4 +1,4 @@
-AUTOSUB STUDIO 1.0.0  -  BAN CHAY DOC LAP
+AUTOSUB STUDIO 2.0.0  -  BAN CHAY DOC LAP
 =========================================
 
 Thu muc nay da co san moi thu: FFmpeg, mo hinh nhan dang giong noi,
@@ -10,7 +10,7 @@ TANG TOC BANG CARD DO HOA
 -------------------------
 Phan mem TU DONG dung card do hoa cua may, khong phai bat gi.
 
-Do tren card NVIDIA RTX 3060:
+So lieu tham khao truoc day tren card NVIDIA RTX 3060:
    Nhan dang giong noi   : nhanh gap 3,6 lan CPU
    Doc chu tren hinh OCR : nhanh gap 4,7 lan CPU
    Render video          : nhanh gap 4,0 lan CPU
@@ -97,18 +97,17 @@ va doi chieu 3 khung lien tiep. Mo hinh da duoc dong goi san, khong can mang.
        Nen khoanh sat phu de; bam "Do Chieu Cao Chu" neu muon do tu video.
    Video qua toi hoac qua bac lam chu chim vao nen: keo them hai thanh
    "Chinh Sang" va "Chinh Tuong Phan".
-   Do tren mot video dung san (nen nhieu mau, nen manh, co logo trang
-   cung mau phu de va chu quang cao vang ngay trong vung khoanh):
-   truoc khi loc doc ra 12 cau, giong ban goc 77%; sau khi loc con dung
-   6 cau, giong ban goc 99,5%.
+    Ket qua do tham khao truoc day tren mot video dung san (nen nhieu mau, nen manh):
+    truoc khi loc doc ra 12 cau, giong ban goc 77%; sau khi loc con dung
+    6 cau, giong ban goc 99,5%.
 
-   MOC THOI GIAN DUOC DO HAI LAN CHO KHOP
-   Lan dau quet thua nen moc chi dung trong khoang nua giay. Sau do
-   phan mem lay them cac khung sat nhau quanh dau va cuoi moi cau de
-   tim dung luc chu hien ra va bien mat.
-   Do tren video co moc biet truoc: sai so tu 257 xuong 50 mili giay.
-   Doi lai thoi gian chay lau hon khoang gap doi.
-   Muon nhanh hon: tab B1 bo chon "Do lai moc thoi gian cho chinh xac"
+    MOC THOI GIAN DUOC DO HAI LAN CHO KHOP
+    Lan dau quet thua nen moc chi dung trong khoang nua giay. Sau do
+    phan mem lay them cac khung sat nhau quanh dau va cuoi moi cau de
+    tim dung luc chu hien ra va bien mat (do thu truoc day giup sai so
+    trung binh giam ro ret).
+    Doi lai thoi gian chay lau hon.
+    Muon nhanh hon: tab B1 bo chon "Do lai moc thoi gian cho chinh xac"
 
    TACH SUB XONG LA CO NGAY TEP .SRT
    Tep phu de duoc tu dong luu vao DUNG THU MUC chua video ban da them,
@@ -121,23 +120,31 @@ va doi chieu 3 khung lien tiep. Mo hinh da duoc dong goi san, khong can mang.
 3. Sua lai phu de o bang goc tren ben phai.
    Bam "Kiem tra time" de do cac cau bi loi thoi gian.
 4. Tab "B2: Dich noi dung" -> chon ngon ngu -> Dich toan bo du an
-                              (buoc nay can Internet)
+                              (dung Google Dich hoac AI Gateway)
 5. Tab "B3: Ghep Giong Doc"
-   - Mo VoiceStudio, chon Server = "VoiceStudio Local".
-   - Bam "Ket Noi VoiceStudio / Nap Giong". Danh sach chi co English/US:
-     8 giong Kitten English, profile English trong VoiceStudio va Edge US du phong.
-   - Chon "Long Tieng Vao Video" de xuat luon tep *_long_tieng.mp4.
+   - Chon giong doc tu danh muc Local Voice (Piper Local). Neu model
+     chua co tren may, bam "Tai Voice" de tai ve (can mang lan dau).
+     Sau khi tai, giong doc chay hoan toan offline, khong gui ra ngoai.
+   - Chon "Long Tieng Vao Video" de xuat luon tep *_long_tieng.mp4
+     hoac "Chi Xuat Tep Tieng" (WAV).
    - "Giu Tieng Goc" tu lay audio cua video va ha xuong 20% mac dinh.
-   - Co the chinh toc do, cao do, Bass/Mid/Treble, khoang nghi cuoi,
+   - Chon che do canh thoi gian:
+     + "Canh theo sub": giu nguyen thoi gian video goc, cau doc bat dau
+       dung moc sub, toc do chung giu co dinh (khong tu co gian tung cau,
+       co the chong tieng neu bat cho phep chong).
+     + "Canh theo giong doc": keo dai timeline video theo do dai phat am
+       thuc te cua tung cau voice.
+   - Co the chinh toc do, Bass/Mid/Treble, khoang nghi cuoi,
      luu tung voice va gan profile giong Mac dinh/Nam/Nu.
-   - Bam "START: Long Tieng". Giong Free tu thu lai 3 lan neu mang chap chon.
+   - Bam "START: Long Tieng".
 6. Tab "B4: Render va xuat" -> Render video
 
 Muon chay lien mot mach: tich chon cac buoc o cot "Cac buoc chay tu dong"
 goc duoi ben trai, roi bam "Chay kich ban".
 
-Tai "Cau Hinh Chung", nhap ten va bam "Tao Moi" de luu mot bo cau hinh.
+Tai tab "Cau Hinh Chung", nhap ten va bam "Tao Moi" de luu mot bo cau hinh.
 Chon ten trong danh sach de ap dung; nut "Xoa" xoa profile, khong xoa tep tam.
+Nut "AI Gateway" o tab nay dung de cau hinh ket noi dich AI.
 
 
 NHAP CHUOT PHAI VAO DONG DU AN
@@ -166,9 +173,9 @@ Nhap chuot phai vao cho trong trong bang thi hien "Tao du an moi".
 
 CHUC NANG NAO CAN INTERNET
 --------------------------
-Can mang : dich bang Google hoac Claude, giong doc Edge TTS
-Khong can: nhan dang giong noi, doc chu tren hinh, tach nhac,
-           long tieng bang giong Windows, render video
+Can mang : dich bang Google hoac AI Gateway, tai model voice lan dau
+Khong can: nhan dang giong noi (Whisper), doc chu tren hinh (OCR), tach nhac,
+           long tieng offline (Local Voice / Piper), render video
 
 
 DU LIEU LUU O DAU

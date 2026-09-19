@@ -39,3 +39,9 @@ class TestSelfTest:
     def test_result_line_is_readable(self):
         line = selftest.CheckResult("Muc thu", selftest.OK, "chi tiet").line()
         assert "Muc thu" in line and "chi tiet" in line
+
+    def test_tts_check_covers_piper_local_and_does_not_crash(self):
+        results = selftest._check_tts()
+        assert len(results) >= 1
+        assert "Piper" in results[0].name or "giong doc" in results[0].name.lower()
+        assert results[0].status in {selftest.OK, selftest.WARN}

@@ -40,6 +40,6 @@ Mo hinh nhan dang giong noi (thu muc _internal\models\faster-whisper-small)
 Mo hinh doc chu tren hinh (di kem thu vien rapidocr-onnxruntime)
     Dua tren PaddleOCR, phat hanh theo giay phep Apache License 2.0.
 
-Cac thu vien Python khac (PySide6, SQLAlchemy, faster-whisper, edge-tts,
+Cac thu vien Python khac (PySide6, SQLAlchemy, faster-whisper, piper,
 deep-translator, onnxruntime...) giu giay phep rieng cua chung; ban sao giay
 phep nam trong thu muc _internal.

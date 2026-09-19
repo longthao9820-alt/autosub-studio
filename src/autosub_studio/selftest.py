@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import APP_NAME, APP_VERSION
-from .providers import asr, ocr, ocr_filter, separate, tts
+from .providers import asr, local_voice, ocr, ocr_filter, separate, tts
 from .services import gpu, media
 from .services.ffmpeg import FFmpeg
 from .services.paths import app_root, config_dir, human_size, is_portable
@@ -125,27 +125,39 @@ def _check_ocr() -> list[CheckResult]:
 
 
 def _check_tts() -> list[CheckResult]:
-    results = []
-    voices = tts.list_voices(tts.PROVIDER_SAPI)
-    if voices:
-        results.append(CheckResult("Giong doc Windows", OK, ", ".join(voices)))
-    else:
+    """Kiem tra runtime Piper Local, catalog va cac model giong doc da tai."""
+    results: list[CheckResult] = []
+    ready, reason = local_voice.piper_runtime_ready()
+    catalog = local_voice.list_catalog()
+    manager = local_voice.get_default_manager()
+    ready_voices = [v for v in catalog if manager.get_status(v.id) == local_voice.STATUS_READY]
+
+    if not ready:
         results.append(
             CheckResult(
-                "Giong doc Windows",
+                "Giong doc offline (Piper Local)",
                 WARN,
-                "Khong thay giong nao. Vao Windows Settings > Time & language >\n"
-                "         Speech de cai them giong doc.",
+                f"{reason}\n         Co the chep piper vao assets/piper hoac dung ban dong goi.",
             )
         )
-    ready, reason = tts.provider_ready(tts.PROVIDER_EDGE)
-    results.append(
-        CheckResult(
-            "Giong doc Edge TTS",
-            OK if ready else WARN,
-            reason or "San sang (can Internet khi dung).",
+    elif not ready_voices:
+        results.append(
+            CheckResult(
+                "Giong doc offline (Piper Local)",
+                WARN,
+                f"Runtime san sang. Danh muc co {len(catalog)} giong, chua tai model nao ve may.\n"
+                "         Co the tai model tai tab B3 hoac dung mang mot lan de tai.",
+            )
         )
-    )
+    else:
+        names = ", ".join(v.name for v in ready_voices)
+        results.append(
+            CheckResult(
+                "Giong doc offline (Piper Local)",
+                OK,
+                f"Runtime san sang. Da co {len(ready_voices)}/{len(catalog)} model: {names}",
+            )
+        )
     return results
 
 
@@ -306,19 +318,61 @@ def _deep_check_ocr(ff: FFmpeg, work: Path) -> CheckResult:
     return CheckResult("Chay thu OCR", FAIL, f"Doc tieng Trung chi dat {accuracy:.0%}: {got!r}")
 
 
+def _deep_check_tts(work: Path) -> CheckResult:
+    """Chay thu giong doc Piper Local neu runtime va model da san sang."""
+    ready, reason = local_voice.piper_runtime_ready()
+    if not ready:
+        return CheckResult("Chay thu giong doc", WARN, f"Bo qua: {reason}")
+    manager = local_voice.get_default_manager()
+    catalog = local_voice.list_catalog()
+    ready_voice = next(
+        (v for v in catalog if manager.get_status(v.id) == local_voice.STATUS_READY),
+        None,
+    )
+    if not ready_voice:
+        return CheckResult(
+            "Chay thu giong doc",
+            WARN,
+            "Bo qua: chua co model Piper nao duoc tai ve may de chay thu.",
+        )
+    spoken = work / "piper_test.wav"
+    try:
+        started = time.monotonic()
+        tts.synthesize(tts.PROVIDER_LOCAL, SPOKEN_TEXT, spoken, voice=ready_voice.id)
+        elapsed = time.monotonic() - started
+        size = spoken.stat().st_size if spoken.is_file() else 0
+        if size < 64:
+            return CheckResult("Chay thu giong doc", FAIL, "Tep am thanh tao ra rong.")
+        return CheckResult(
+            "Chay thu giong doc",
+            OK,
+            f"Da tao am thanh bang {ready_voice.name} het {elapsed:.1f} giay ({human_size(size)}).",
+        )
+    except Exception as exc:
+        return CheckResult("Chay thu giong doc", FAIL, f"Loi khi tao giong doc: {exc}")
+
+
 def _deep_check_asr(ff: FFmpeg, work: Path, settings: Settings) -> CheckResult:
-    """Doc mot cau bang giong Windows roi nhan dang lai bang model kem theo."""
+    """Nhan dang lai cau thu bang model Whisper kem theo."""
     if not asr.is_available():
         return CheckResult("Chay thu nhan dang giong noi", FAIL, asr.install_hint())
-    voices = tts.list_voices(tts.PROVIDER_SAPI)
-    if not voices:
+    ready, _ = local_voice.piper_runtime_ready()
+    manager = local_voice.get_default_manager()
+    catalog = local_voice.list_catalog()
+    ready_voice = next(
+        (v for v in catalog if manager.get_status(v.id) == local_voice.STATUS_READY),
+        None,
+    )
+    if not ready or not ready_voice:
         return CheckResult(
-            "Chay thu nhan dang giong noi", WARN, "Khong co giong Windows nao de tao cau thu."
+            "Chay thu nhan dang giong noi",
+            WARN,
+            "Chua co runtime Piper hoac model giong doc tren may de tao cau thu.",
         )
     spoken = work / "spoken.wav"
     wav16 = work / "spoken_16k.wav"
     try:
-        tts.synthesize(tts.PROVIDER_SAPI, SPOKEN_TEXT, spoken, voice=voices[0])
+        tts.synthesize(tts.PROVIDER_LOCAL, SPOKEN_TEXT, spoken, voice=ready_voice.id)
         media.extract_audio(ff, spoken, wav16, rate=16000, channels=1)
     except Exception as exc:
         return CheckResult("Chay thu nhan dang giong noi", FAIL, f"Khong tao duoc cau thu: {exc}")
@@ -349,7 +403,7 @@ def _deep_check_asr(ff: FFmpeg, work: Path, settings: Settings) -> CheckResult:
 
 
 def deep_checks() -> list[CheckResult]:
-    """Kiem tra sau: chay that OCR, nhan dang giong noi va render."""
+    """Kiem tra sau: chay that OCR, giong doc, nhan dang giong noi va render."""
     settings = Settings.load()
     ff = FFmpeg(settings.ffmpeg_path, settings.ffprobe_path)
     if not ff.available:
@@ -358,6 +412,7 @@ def deep_checks() -> list[CheckResult]:
     try:
         results = [
             _deep_check_ocr(ff, work),
+            _deep_check_tts(work),
             _deep_check_asr(ff, work, settings),
         ]
         results.append(_deep_check_render_real(ff, work))

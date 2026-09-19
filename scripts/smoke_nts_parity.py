@@ -8,13 +8,28 @@ from pathlib import Path
 from autosub_studio.core.models import Cue, SubtitleDoc
 from autosub_studio.data.project import ProjectStore
 from autosub_studio.pipeline.steps import PipelineContext, step_dub
-from autosub_studio.providers import tts
+from autosub_studio.providers import local_voice, tts
 from autosub_studio.services.ffmpeg import CancelToken, FFmpeg
 from autosub_studio.services.settings import Settings
 from autosub_studio.services.tasks import TaskContext
 
 
 def main() -> int:
+    ready, reason = local_voice.piper_runtime_ready()
+    if not ready:
+        print(f"[BO QUA] Piper runtime chua san sang: {reason}")
+        return 0
+
+    mgr = local_voice.get_default_manager()
+    catalog = local_voice.list_catalog()
+    ready_voice = next(
+        (v.id for v in catalog if mgr.get_status(v.id) == local_voice.STATUS_READY),
+        None,
+    )
+    if not ready_voice:
+        print("[BO QUA] Chua co model Piper ready tren may de chay smoke test dub.")
+        return 0
+
     root = Path(tempfile.mkdtemp(prefix="autosub_nts_smoke_"))
     ff = FFmpeg()
     source = root / "source.mp4"
@@ -44,14 +59,13 @@ def main() -> int:
     project.duration = 4.0
     project.doc = SubtitleDoc(
         cues=[
-            Cue(0.0, 1.6, "This is the first American English voice test."),
+            Cue(0.0, 1.6, "This is the first voice test."),
             Cue(1.7, 3.6, "The second line is longer so the video follows the narration."),
         ]
     )
     settings = Settings()
-    settings.tts_provider = tts.PROVIDER_VOICESTUDIO
-    settings.tts_language = "en-US"
-    settings.tts_voice = "Kitten English Male 2|kittentts|expr-voice-2-m"
+    settings.tts_provider = tts.PROVIDER_LOCAL
+    settings.tts_voice = ready_voice
     settings.dub_source = "original"
     settings.dub_output_mode = "video"
     settings.dub_timing_mode = "voice"

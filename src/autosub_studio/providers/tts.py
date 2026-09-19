@@ -11,7 +11,6 @@ import shutil
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from ..services.paths import config_dir
 from .local_voice import (
@@ -25,20 +24,6 @@ from .local_voice import (
 PROVIDER_LOCAL = "Local Voice"
 PROVIDER_PIPER = PROVIDER_LOCAL
 PROVIDERS = (PROVIDER_LOCAL,)
-
-# Ho tro __getattr__ de cac vi tri cu kiem tra `if tts.PROVIDER_... in available`
-# khong bi loi AttributeError ma danh gia ve False an toan truoc khi UI contract cap nhat.
-_DEPRECATED_PROVIDERS = {
-    "PROVIDER_VOICESTUDIO": "_deprecated_voicestudio",
-    "PROVIDER_EDGE": "_deprecated_edge",
-    "PROVIDER_SAPI": "_deprecated_sapi",
-}
-
-
-def __getattr__(name: str) -> Any:
-    if name in _DEPRECATED_PROVIDERS:
-        return _DEPRECATED_PROVIDERS[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def available_providers() -> list[str]:

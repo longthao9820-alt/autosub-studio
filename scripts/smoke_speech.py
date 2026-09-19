@@ -1,11 +1,11 @@
-"""Chay thu giong doc Windows va nhan dang giong noi.
+"""Chay thu giong doc Piper Local va nhan dang giong noi.
 
 Cach dung:
-    python scripts/smoke_speech.py [--model tiny]
+    python scripts/smoke_speech.py [--model tiny] [--voice en_US-bryce-medium]
 
-Script doc mot cau bang giong Windows SAPI, roi dua chinh tep do cho
-faster-whisper nhan dang lai va so sanh ket qua. Lan dau chay can Internet
-de tai model ve may.
+Script doc mot cau bang Local Voice (Piper Local), roi dua chinh tep do cho
+faster-whisper nhan dang lai va so sanh ket qua. Neu chua co runtime Piper
+hoac chua co model voice tren may, script se bo qua ro rang (skip).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from autosub_studio.providers import asr, tts  # noqa: E402
+from autosub_studio.providers import asr, local_voice, tts  # noqa: E402
 from autosub_studio.services import media  # noqa: E402
 from autosub_studio.services.ffmpeg import FFmpeg  # noqa: E402
 
@@ -34,17 +34,35 @@ def words(text: str) -> set[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="tiny", choices=list(asr.MODEL_SIZES))
+    parser.add_argument("--voice", default="", help="Voice ID tu catalog Piper Local")
     args = parser.parse_args()
+
+    ready, reason = local_voice.piper_runtime_ready()
+    if not ready:
+        print(f"[BO QUA] Piper Local chua san sang: {reason}")
+        return 0
+
+    mgr = local_voice.get_default_manager()
+    catalog = local_voice.list_catalog()
+    ready_voices = [v for v in catalog if mgr.get_status(v.id) == local_voice.STATUS_READY]
+    if not ready_voices:
+        print("[BO QUA] Chua co model Piper ready tren may de chay thu giong doc.")
+        return 0
+
+    target_voice = args.voice
+    if not target_voice:
+        target_voice = ready_voices[0].id
+    elif mgr.get_status(target_voice) != local_voice.STATUS_READY:
+        print(f"[BO QUA] Voice '{target_voice}' chua san sang tren may.")
+        return 0
 
     work = Path(tempfile.mkdtemp(prefix="autosub_speech_"))
     ok = True
     try:
-        print("1) Tao giong doc bang Windows SAPI...")
-        voices = tts.list_voices(tts.PROVIDER_SAPI)
-        print(f"   Giong co san: {voices or 'khong tim thay'}")
+        print(f"1) Tao giong doc bang Local Voice ({target_voice})...")
         spoken = work / "spoken.wav"
         try:
-            tts.synthesize(tts.PROVIDER_SAPI, SENTENCE, spoken, voice=voices[0] if voices else "")
+            tts.synthesize(tts.PROVIDER_LOCAL, SENTENCE, spoken, voice=target_voice)
         except tts.TTSError as exc:
             print(f"   [HONG] {exc}")
             return 1
@@ -54,15 +72,15 @@ def main() -> int:
         ff = FFmpeg()
         if not ff.available:
             print("   [BO QUA] Khong co FFmpeg nen khong chuyen duoc dinh dang.")
-            return 1
+            return 0
         wav16 = work / "spoken_16k.wav"
         media.extract_audio(ff, spoken, wav16, rate=16000, channels=1)
         print(f"   [OK] Da chuyen sang 16 kHz ({media.wav_duration(wav16):.2f} giay)")
 
         print(f"2) Nhan dang lai bang faster-whisper (model {args.model})...")
         if not asr.is_available():
-            print(f"   [HONG] {asr.install_hint()}")
-            return 1
+            print(f"   [BO QUA] {asr.install_hint()}")
+            return 0
         try:
             cues, lang = asr.transcribe(
                 wav16,

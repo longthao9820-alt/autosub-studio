@@ -598,14 +598,14 @@ class TestSettings:
 
     def test_secret_round_trip(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path))
-        Settings.set_secret("claude_api_key", "sk-test-123")
-        assert Settings.get_secret("claude_api_key") == "sk-test-123"
-        Settings.set_secret("claude_api_key", "")
-        assert Settings.get_secret("claude_api_key") == ""
+        Settings.set_secret("ai_gateway_key", "sk-test-123")
+        assert Settings.get_secret("ai_gateway_key") == "sk-test-123"
+        Settings.set_secret("ai_gateway_key", "")
+        assert Settings.get_secret("ai_gateway_key") == ""
 
     def test_secret_not_stored_in_plain_text(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path))
-        Settings.set_secret("claude_api_key", "sk-bi-mat")
+        Settings.set_secret("ai_gateway_key", "sk-bi-mat")
         blob = (tmp_path / "AutoSubStudio" / "secrets.dat").read_bytes()
         assert b"sk-bi-mat" not in blob
 

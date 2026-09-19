@@ -323,10 +323,8 @@ class Settings:
             "nts" in settings.ocr_mode.casefold() or "nts" in settings.ocr_server.casefold()
         ):
             settings.ocr_fps = 15.0
-        # Ban cu dung SAPI voi cac giong Windows tieng Anh (David/Zira), nen
-        # van tao duoc WAV nhung khong doc dung tieng Viet. Nang cap mot lan
-        # sang dung "Giong Free" cua NTS; sau do nguoi dung van co the chon
-        # lai SAPI neu muon.
+        # Ban cu truoc schema 11 dung cac giong cu tieng Anh,
+        # chuyen toan bo sang mac dinh Local Voice.
         migrated_voice = False
         if old_schema < 11:
             settings.tts_provider = "Local Voice"

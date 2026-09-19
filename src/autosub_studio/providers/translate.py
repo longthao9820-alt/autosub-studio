@@ -15,12 +15,10 @@ PROVIDER_NONE = "Khong dich (giu nguyen)"
 PROVIDER_GOOGLE = "Google (mien phi)"
 PROVIDER_SERVER_AI = "Server AI API"
 PROVIDER_AI = "AI Gateway"
-PROVIDER_CLAUDE = "Claude (can khoa API)"  # alias tuong thich cu
 
 PROVIDERS = (PROVIDER_GOOGLE, PROVIDER_SERVER_AI, PROVIDER_NONE)
 
 AI_MODELS = ("sub", "prime")
-CLAUDE_MODELS = AI_MODELS  # alias tuong thich cu
 
 # Ma ngon ngu -> ten hien thi tren giao dien.
 LANGUAGES: dict[str, str] = {
@@ -87,7 +85,6 @@ def is_ai_provider(provider: str) -> bool:
     return provider in (
         PROVIDER_SERVER_AI,
         PROVIDER_AI,
-        PROVIDER_CLAUDE,
         "Server AI API",
         "AI Gateway",
     )
@@ -299,11 +296,6 @@ def _parse_ai_json(text: str, expected: int, *, strict: bool = True) -> list[str
             f"Số lượng câu dịch ({len(filled)}) không khớp với số lượng câu gốc ({expected})."
         )
     return out
-
-
-def _parse_claude_json(text: str, expected: int) -> list[str]:
-    """Ham tuong thich cho cac bai kiem thu cu."""
-    return _parse_ai_json(text, expected, strict=False)
 
 
 def chunk(items: Sequence[str], size: int = 25) -> list[list[str]]:

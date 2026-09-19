@@ -49,29 +49,31 @@ class TestTranslateHelpers:
         with pytest.raises(translate.TranslationError):
             translate.translate_batch("khong co", translate.TranslationRequest(texts=["a"]))
 
-    def test_claude_needs_key(self):
-        ready, reason = translate.provider_ready(translate.PROVIDER_CLAUDE, "")
+    def test_ai_gateway_needs_key(self):
+        ready, reason = translate.provider_ready(translate.PROVIDER_AI, "")
         assert not ready or "khoa API" in reason.lower() or reason
 
-    def test_parse_claude_json(self):
+    def test_parse_ai_json(self):
         payload = json.dumps({"translations": [{"id": 1, "text": "hai"}, {"id": 0, "text": "mot"}]})
-        assert translate._parse_claude_json(payload, 2) == ["mot", "hai"]
+        assert translate._parse_ai_json(payload, 2) == ["mot", "hai"]
 
-    def test_parse_claude_json_in_code_fence(self):
+    def test_parse_ai_json_in_code_fence(self):
         payload = "```json\n" + json.dumps({"translations": [{"id": 0, "text": "a"}]}) + "\n```"
-        assert translate._parse_claude_json(payload, 1) == ["a"]
+        assert translate._parse_ai_json(payload, 1) == ["a"]
 
-    def test_parse_claude_json_missing_entries(self):
+    def test_parse_ai_json_missing_entries(self):
         payload = json.dumps({"translations": [{"id": 0, "text": "a"}]})
-        assert translate._parse_claude_json(payload, 3) == ["a", "", ""]
-
-    def test_parse_claude_json_invalid(self):
         with pytest.raises(translate.TranslationError):
-            translate._parse_claude_json("khong phai json", 1)
+            translate._parse_ai_json(payload, 3, strict=True)
+        assert translate._parse_ai_json(payload, 3, strict=False) == ["a", "", ""]
 
-    def test_parse_claude_json_wrong_shape(self):
+    def test_parse_ai_json_invalid(self):
         with pytest.raises(translate.TranslationError):
-            translate._parse_claude_json(json.dumps({"khac": []}), 1)
+            translate._parse_ai_json("khong phai json", 1)
+
+    def test_parse_ai_json_wrong_shape(self):
+        with pytest.raises(translate.TranslationError):
+            translate._parse_ai_json(json.dumps({"khac": []}), 1)
 
 
 class TestAsrSegmentation:
@@ -297,8 +299,6 @@ class TestTts:
         assert first.suffix == ".wav"
         assert len(calls) == 1
 
-    def test_deprecated_constants_safely_accessible_via_getattr(self):
+    def test_local_voice_is_only_available_provider(self):
         available = tts.available_providers()
-        assert tts.PROVIDER_VOICESTUDIO not in available
-        assert tts.PROVIDER_EDGE not in available
-        assert tts.PROVIDER_SAPI not in available
+        assert available == [tts.PROVIDER_LOCAL]

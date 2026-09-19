@@ -901,9 +901,6 @@ class TranslatePanel(QWidget):
             )
         )
         layout.addLayout(_row(self.btn_all, self.btn_import, self.btn_import_txt))
-        token = QLabel("Token Cố Định: 1,950,051")
-        token.setObjectName("Ok")
-        layout.addWidget(token)
 
         self.btn_selected.setParent(self)
         self.btn_selected.hide()

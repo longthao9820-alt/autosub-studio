@@ -113,7 +113,7 @@ class TestAutoExport:
     def test_video_mode_mixes_original_audio_and_outputs_mp4(self, tmp_path, monkeypatch):
         video = tmp_path / "phim" / "tap-01.mp4"
         pc, _logs = make_context(tmp_path, video=video)
-        pc.settings.tts_provider = tts.PROVIDER_EDGE
+        pc.settings.tts_provider = tts.PROVIDER_LOCAL
         pc.settings.dub_output_mode = "video"
         pc.settings.keep_original_audio = True
         pc.settings.original_audio_volume = 20
