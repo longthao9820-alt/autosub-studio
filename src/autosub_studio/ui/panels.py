@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -1563,53 +1561,6 @@ class RenderPanel(QWidget):
         s.render_preset = self.preset.currentText()
 
 
-# =========================================================== B4: CapCut
-
-
-class CapCutPanel(QWidget):
-    """B4 - tao draft CapCut tu video/subtitle hien tai va template da chon."""
-
-    createDraft = Signal()
-    chooseTemplate = Signal()
-    openDrafts = Signal()
-    renderVideo = Signal()
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        box = QGroupBox("Tự Động Hóa CapCut")
-        self.template = QLabel("Chưa chọn draft mẫu")
-        self.template.setObjectName("Muted")
-        self.btn_template = QPushButton("Chọn Draft Mẫu / Hiệu Ứng")
-        self.btn_create = QPushButton("START: Tạo CapCut Draft")
-        self.btn_create.setObjectName("Blue")
-        self.btn_render = QPushButton("Render Video Trước Khi Đưa Sang CapCut")
-        self.btn_open = QPushButton("Mở Thư Mục Draft CapCut")
-        self.note = QLabel(
-            "Tool nhân bản draft mẫu, giữ bố cục/title/effect của mẫu, thay video chính "
-            "và tạo lại toàn bộ track subtitle theo project hiện tại."
-        )
-        self.note.setWordWrap(True)
-        self.note.setObjectName("Muted")
-        self.btn_template.clicked.connect(self.chooseTemplate)
-        self.btn_create.clicked.connect(self.createDraft)
-        self.btn_render.clicked.connect(self.renderVideo)
-        self.btn_open.clicked.connect(self.openDrafts)
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(12, 18, 12, 12)
-        layout.addLayout(_row("Draft Mẫu:", self.template, self.btn_template))
-        layout.addWidget(self.note)
-        layout.addStretch(1)
-        layout.addLayout(_row(self.btn_render, self.btn_create, self.btn_open))
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
-        outer.addWidget(box)
-
-    def load(self, settings: Settings) -> None:
-        self.template.setText(
-            settings.capcut_template_draft or "Chưa chọn draft mẫu trong Cấu Hình Chung"
-        )
-
-
 # =========================================================== Cau Hinh Chung
 
 
@@ -1620,8 +1571,6 @@ class SettingsPanel(QWidget):
     chooseWorkspace = Signal()
     chooseFfmpeg = Signal()
     chooseModelDir = Signal()
-    chooseCapcut = Signal()
-    chooseCapcutTemplate = Signal()
     saveRequested = Signal()
     cleanTemp = Signal()
     presetSelected = Signal(str)
@@ -1637,48 +1586,16 @@ class SettingsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 4, 5, 5)
         layout.setSpacing(6)
-        top = QHBoxLayout()
-        top.setSpacing(6)
-        top.addWidget(self._build_capcut_box(), 1)
-        top.addWidget(self._build_app_box(), 1)
-        layout.addLayout(top)
+        layout.addWidget(self._build_app_box())
         layout.addWidget(self._build_render_box())
         layout.addWidget(self._build_edit_box())
         layout.addLayout(self._build_bottom_row())
-
-    def _build_capcut_box(self) -> QGroupBox:
-        box = QGroupBox("Cấu Hình Hiệu Ứng Capcut")
-        self.capcut_path = QLineEdit()
-        self.capcut_path.setText(str(Path.home() / "AppData" / "Local" / "CapCut"))
-        self.capcut_path.setReadOnly(True)
-        self.btn_capcut = QPushButton("📁")
-        self.btn_capcut.setObjectName("RenderIcon")
-        self.btn_capcut.setFixedWidth(38)
-        self.btn_capcut.clicked.connect(self.chooseCapcut)
-        self.btn_capcut_template = QPushButton("Lựa Chọn Hiệu Ứng CapCut")
-        self.btn_capcut_template.clicked.connect(self.chooseCapcutTemplate)
-        self.capcut_selected = QLabel("Chưa chọn draft mẫu")
-        self.capcut_selected.setObjectName("Bad")
-        grid = QGridLayout(box)
-        grid.setContentsMargins(8, 13, 8, 8)
-        grid.addWidget(field_label("Thư Mục Capcut"), 0, 0)
-        grid.addWidget(self.capcut_path, 0, 1)
-        grid.addWidget(self.btn_capcut, 0, 2)
-        grid.addWidget(self.btn_capcut_template, 1, 0, 1, 2)
-        grid.addWidget(self.capcut_selected, 1, 2)
-        grid.setColumnStretch(1, 1)
-        return box
 
     def _build_render_box(self) -> QGroupBox:
         box = QGroupBox("Cấu Hình Render")
         self.gpu = QCheckBox("Dùng GPU (NVIDIA)")
         self.gpu_encoder = QCheckBox("Nối Video Nhanh")
         self.keep_temp = QCheckBox("Chống Full 100% CPU (tốc độ sẽ chậm hơn)")
-        self.auto_srt = QCheckBox("Format Video Bằng CapCut")
-        self.auto_srt.setToolTip(
-            "Sau moi lan lay phu de bang giong noi hoac OCR, tep .srt duoc ghi ngay\n"
-            "vao thu muc chua video ban da them, trung ten voi video."
-        )
         self.scale = QComboBox()
         self.scale.addItems(["giu nguyen", "1920x1080", "1280x720", "854x480"])
         self.fps = QComboBox()
@@ -1698,7 +1615,6 @@ class SettingsPanel(QWidget):
                 self.gpu,
                 self.keep_temp,
                 self.gpu_encoder,
-                self.auto_srt,
                 self.add_music,
                 self.smart_cut,
             )
@@ -1854,12 +1770,6 @@ class SettingsPanel(QWidget):
 
     def load(self, s: Settings, api_key: str, ffmpeg_version: str, ffmpeg_path: str = "") -> None:
         self.set_config_profiles(list(s.config_profiles), s.active_config_profile)
-        self.capcut_path.setText(s.capcut_path)
-        self.capcut_selected.setText(
-            f"Đã Chọn: {Path(s.capcut_template_draft).name}"
-            if s.capcut_template_draft
-            else "Chưa chọn draft mẫu"
-        )
         self.workspace.setText(s.workspace)
         self.ffmpeg.setText(s.ffmpeg_path)
         self.model_dir.setText(s.model_dir)
@@ -1869,7 +1779,6 @@ class SettingsPanel(QWidget):
         self.gpu.setChecked(s.use_gpu)
         self.gpu_encoder.setChecked(s.use_gpu_encoder)
         self.keep_temp.setChecked(s.limit_cpu)
-        self.auto_srt.setChecked(s.format_capcut)
         self.add_music.setChecked(s.add_background_music)
         self.smart_cut.setChecked(s.smart_cut)
         self.scale.setCurrentText(s.render_scale)
@@ -1896,7 +1805,6 @@ class SettingsPanel(QWidget):
         )
 
     def apply(self, s: Settings) -> None:
-        s.capcut_path = self.capcut_path.text().strip()
         s.ffmpeg_path = self.ffmpeg.text().strip()
         s.model_dir = self.model_dir.text().strip()
         s.max_workers = self.workers.value()
@@ -1905,7 +1813,6 @@ class SettingsPanel(QWidget):
         s.use_gpu = self.gpu.isChecked()
         s.use_gpu_encoder = self.gpu_encoder.isChecked()
         s.limit_cpu = self.keep_temp.isChecked()
-        s.format_capcut = self.auto_srt.isChecked()
         s.add_background_music = self.add_music.isChecked()
         s.smart_cut = self.smart_cut.isChecked()
         s.render_scale = self.scale.currentText()
@@ -1921,7 +1828,6 @@ class SettingsPanel(QWidget):
 __all__ = [
     "MUTED",
     "DubPanel",
-    "CapCutPanel",
     "RenderPanel",
     "ScriptPanel",
     "SettingsPanel",

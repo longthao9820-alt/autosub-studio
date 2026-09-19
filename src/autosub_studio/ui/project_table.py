@@ -20,7 +20,7 @@ HEADERS = (
     "Ngôn Ngữ",
     "SL Ký Tự",
     "Nhiệm Vụ",
-    "Xuất Qua CapCut",
+    "Xuất Dự Án",
     "Tiến trình",
     "Status",
 )

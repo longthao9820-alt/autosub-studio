@@ -71,7 +71,6 @@ class Settings:
     autosave_seconds: int = 60
     limit_cpu: bool = False
     fast_concat: bool = True
-    format_capcut: bool = False
     add_background_music: bool = False
     smart_cut: bool = False
     play_on_edit: bool = False
@@ -189,8 +188,6 @@ class Settings:
     # chua duong dan may, dau van tay phan cung hay chinh danh sach profile.
     active_config_profile: str = "default"
     config_profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
-    capcut_path: str = ""
-    capcut_template_draft: str = ""
     download_folder: str = ""
     download_proxy: str = ""
 
@@ -202,8 +199,6 @@ class Settings:
     def __post_init__(self) -> None:
         if not self.workspace:
             self.workspace = str(default_workspace())
-        if not self.capcut_path:
-            self.capcut_path = str(Path.home() / "AppData" / "Local" / "CapCut")
 
     def profile_snapshot(self) -> dict[str, Any]:
         """Ban chup setting co the luu/doi qua lai nhu cau hinh APP cua NTS."""

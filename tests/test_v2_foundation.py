@@ -12,7 +12,7 @@ import autosub_studio
 from autosub_studio.data.project import PROJECT_SCHEMA_VERSION, ProjectStore
 from autosub_studio.services.settings import SCHEMA_VERSION, Settings
 from autosub_studio.ui.main_window import MainWindow
-from autosub_studio.ui.panels import CapCutPanel, RenderPanel, SettingsPanel, TranslatePanel
+from autosub_studio.ui.panels import RenderPanel, SettingsPanel, TranslatePanel
 from autosub_studio.version import APP_NAME, APP_VERSION, ORG_NAME, __version__
 
 
@@ -76,10 +76,13 @@ class TestSettingsMigration:
         assert loaded.auto_check_update is True
         assert loaded.output_folder == ""
 
-        # Deprecated CapCut fields safely handled without crash
-        assert loaded.capcut_path == r"C:\Users\test\AppData\Local\CapCut"
-        assert loaded.capcut_template_draft == "test_draft"
-        assert loaded.format_capcut is True
+        # Deprecated legacy fields safely migrated into extra without active attributes
+        assert not hasattr(loaded, "capcut_path")
+        assert not hasattr(loaded, "capcut_template_draft")
+        assert not hasattr(loaded, "format_capcut")
+        assert loaded.extra.get("capcut_path") == r"C:\Users\test\AppData\Local\CapCut"
+        assert loaded.extra.get("capcut_template_draft") == "test_draft"
+        assert loaded.extra.get("format_capcut") is True
         assert loaded.extra.get("capcut_unknown_legacy") == "safely_kept"
 
         # Khong mat field khong lien quan
@@ -97,6 +100,9 @@ class TestSettingsMigration:
         assert saved_raw["schema_version"] == 12
         assert saved_raw["tts_provider"] == "Local Voice"
         assert saved_raw["translate_provider"] == "AI Gateway"
+        assert saved_raw["capcut_path"] == r"C:\Users\test\AppData\Local\CapCut"
+        assert saved_raw["capcut_template_draft"] == "test_draft"
+        assert saved_raw["format_capcut"] is True
         assert saved_raw["capcut_unknown_legacy"] == "safely_kept"
         assert saved_raw["unrelated_custom_field"] == "keep_me_safe"
         assert saved_raw["plugin_settings"] == {"enabled": True, "timeout": 42}
@@ -105,6 +111,8 @@ class TestSettingsMigration:
         assert reloaded.schema_version == 12
         assert reloaded.tts_provider == "Local Voice"
         assert reloaded.translate_provider == "AI Gateway"
+        assert not hasattr(reloaded, "capcut_path")
+        assert reloaded.extra.get("capcut_path") == r"C:\Users\test\AppData\Local\CapCut"
         assert reloaded.extra.get("unrelated_custom_field") == "keep_me_safe"
         assert reloaded.extra.get("capcut_unknown_legacy") == "safely_kept"
 
@@ -181,15 +189,14 @@ class TestUIChanges:
 
         window = MainWindow()
 
-        # B4 tab tren PillTabBar va tab_stack
+        # RenderPanel B4 tren tab
         assert window.tab_bar.buttons[4].text() == "B4: Render & Xuất Video"
         b4_widget = window.tab_stack.widget(4)
         assert isinstance(b4_widget, RenderPanel)
         assert b4_widget is window.render_panel
 
-        # CapCutPanel khong con gan tab
-        for idx in range(window.tab_stack.count()):
-            assert not isinstance(window.tab_stack.widget(idx), CapCutPanel)
+        # CapCut panel khong con ton tai
+        assert not hasattr(window, "capcut_panel")
 
         # dub_admin_bar khong con ton tai
         assert not hasattr(window, "dub_admin_bar")

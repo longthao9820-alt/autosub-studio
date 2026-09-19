@@ -16,7 +16,6 @@ __pycache__/
 # Test runs, benchmark & smoke artifacts
 .pytest*
 .pytest-final-venv/
-.capcut_smoke/
 .ocr_bench_*/
 .ocr_quality_*/
 .dub_smoke_*/

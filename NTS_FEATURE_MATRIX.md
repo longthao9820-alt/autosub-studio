@@ -1,7 +1,7 @@
 # Đối chiếu NTS AutoSub 9.2 → AutoSub Studio 1.1
 
 Báo cáo dựa trên kiểm kê read-only thư mục NTS, SQLite `db/app.db`, 20 project thật,
-17 cơ sở dữ liệu OCR raw, project `220-46`, CapCut draft thật và payload Nuitka đã giải nén.
+17 cơ sở dữ liệu OCR raw, project `220-46`, draft xuất mẫu thật và payload Nuitka đã giải nén.
 Không sao chép dữ liệu đăng nhập, cookie, token, proxy hay khóa API.
 
 ## Đã có tương đương dùng được
@@ -24,7 +24,7 @@ Không sao chép dữ liệu đăng nhập, cookie, token, proxy hay khóa API.
 | Giữ tiếng gốc | Có volume, ducking, nhạc tách riêng hoặc audio trực tiếp từ video |
 | Xuất video lồng tiếng | MP4 với video copy + AAC, không còn chỉ tạo WAV |
 | Render subtitle | ASS, blur sub gốc, LUT, GPU encoder, 135 font và 48 LUT từ NTS |
-| CapCut | Tab riêng; nhân draft mẫu, giữ title/effect/layout, thay video và dựng lại track sub |
+| Xuất video / render | Thay thế xuất CapCut cũ bằng RenderPanel trực tiếp và xuất gói dự án |
 | Tải video | `yt-dlp` portable, tiến trình, hủy, MP4 merge |
 | Cấu hình tùy chỉnh | Tạo/chọn/xóa profile thật, lưu toàn bộ tham số workflow |
 | Import/export project | JSON package và importer NTS SQLite |

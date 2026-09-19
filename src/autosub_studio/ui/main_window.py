@@ -67,7 +67,6 @@ from .dialogs import (
     VoiceLibraryDialog,
 )
 from .panels import (
-    CapCutPanel,
     DubPanel,
     RenderPanel,
     ScriptPanel,
@@ -494,7 +493,6 @@ class MainWindow(QMainWindow):
         self.translate_panel = TranslatePanel()
         self.dub_panel = DubPanel()
         self.render_panel = RenderPanel()
-        self.capcut_panel = CapCutPanel()
         self.settings_panel = SettingsPanel()
 
         self.tab_bar = PillTabBar(
@@ -774,20 +772,6 @@ class MainWindow(QMainWindow):
         self.dub_panel.openVoiceLibrary.connect(self._open_voice_library)
         self.dub_panel.runDiarize.connect(lambda: self._run_step(P.STEP_DIARIZE))
 
-        self.capcut_panel.createDraft.connect(lambda: self._run_step(P.STEP_CAPCUT))
-        self.capcut_panel.chooseTemplate.connect(self._choose_capcut_template)
-        self.capcut_panel.renderVideo.connect(lambda: self._run_step(P.STEP_RENDER))
-        self.capcut_panel.openDrafts.connect(
-            lambda: self._open_path(
-                str(
-                    Path(self.settings.capcut_path)
-                    / "User Data"
-                    / "Projects"
-                    / "com.lveditor.draft"
-                )
-            )
-        )
-
         self.render_panel.runRender.connect(lambda: self._run_step(P.STEP_RENDER))
         self.render_panel.runExport.connect(lambda: self._run_step(P.STEP_EXPORT))
         self.render_panel.runBlur.connect(lambda: self._run_step(P.STEP_BLUR))
@@ -799,8 +783,6 @@ class MainWindow(QMainWindow):
         self.settings_panel.openAIGateway.connect(self._open_ai_gateway_dialog)
         self.settings_panel.chooseFfmpeg.connect(self._choose_ffmpeg)
         self.settings_panel.chooseModelDir.connect(self._choose_model_dir)
-        self.settings_panel.chooseCapcut.connect(self._choose_capcut)
-        self.settings_panel.chooseCapcutTemplate.connect(self._choose_capcut_template)
         self.settings_panel.saveRequested.connect(self._save_settings)
         self.settings_panel.cleanTemp.connect(self._clean_temp)
         self.settings_panel.presetSelected.connect(self._switch_config_profile)
@@ -834,7 +816,6 @@ class MainWindow(QMainWindow):
         self.translate_panel.load(self.settings, api_key)
         self.dub_panel.load(self.settings)
         self.render_panel.load(self.settings)
-        self.capcut_panel.load(self.settings)
         self.settings_panel.load(self.settings, api_key, self.ff.version(), self.ff.ffmpeg)
         self.dub_source.blockSignals(True)
         self.dub_source.setCurrentIndex(0 if self.settings.dub_source == "original" else 1)
@@ -2564,8 +2545,7 @@ class MainWindow(QMainWindow):
         ("START: Xóa Âm Thanh Nền Giữ Thoại Gốc", P.STEP_KEEP_VOICE),
         ("START: Che Mờ Sub Gốc Theo Timeline", P.STEP_BLUR),
         ("START: RENDER LỒNG TIẾNG BẰNG TOOL", P.STEP_RENDER),
-        ("START: XUẤT DỰ ÁN QUA CAPCUT", P.STEP_EXPORT),
-        ("START: RENDER DỰ ÁN BẰNG CAPCUT", P.STEP_RENDER),
+        ("START: Xuất Gói Dự Án", P.STEP_EXPORT),
     )
     MENU_SHORTCUTS: dict[str, str] = {
         "START: Format Lại Video Gốc": "Ctrl+B",
@@ -2577,8 +2557,7 @@ class MainWindow(QMainWindow):
         "START: Xóa Âm Thanh Nền Giữ Thoại Gốc": "Ctrl+H",
         "START: Che Mờ Sub Gốc Theo Timeline": "Ctrl+Z",
         "START: RENDER LỒNG TIẾNG BẰNG TOOL": "Ctrl+S",
-        "START: XUẤT DỰ ÁN QUA CAPCUT": "Ctrl+X",
-        "START: RENDER DỰ ÁN BẰNG CAPCUT": "Alt+S",
+        "START: Xuất Gói Dự Án": "Ctrl+X",
     }
 
     @staticmethod
@@ -3051,30 +3030,6 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.settings_panel.model_dir.setText(path)
-
-    def _choose_capcut(self) -> None:
-        path = QFileDialog.getExistingDirectory(
-            self,
-            "Chọn thư mục CapCut",
-            self.settings_panel.capcut_path.text() or self.settings.capcut_path,
-        )
-        if path:
-            self.settings_panel.capcut_path.setText(path)
-
-    def _choose_capcut_template(self) -> None:
-        base = (
-            self.settings.capcut_template_draft
-            or str(
-                Path(self.settings_panel.capcut_path.text())
-                / "User Data"
-                / "Projects"
-                / "com.lveditor.draft"
-            )
-        )
-        path = QFileDialog.getExistingDirectory(self, "Chọn CapCut draft mẫu", base)
-        if path:
-            self.settings.capcut_template_draft = path
-            self.settings_panel.capcut_selected.setText(f"Đã Chọn: {Path(path).name}")
 
     def _clean_temp(self) -> None:
         if self.project is None:

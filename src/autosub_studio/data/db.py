@@ -75,6 +75,9 @@ class TaskLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+DEPRECATED_SCRIPT_STEPS: tuple[str, ...] = ("Tao CapCut draft",)
+
+
 class AutoScript(Base):
     """Kich ban chay tu dong do nguoi dung dat ten."""
 
@@ -88,13 +91,16 @@ class AutoScript(Base):
     def steps(self) -> list[str]:
         try:
             data = json.loads(self.steps_json or "[]")
-            return [str(s) for s in data] if isinstance(data, list) else []
+            if not isinstance(data, list):
+                return []
+            return [str(s) for s in data if str(s) not in DEPRECATED_SCRIPT_STEPS]
         except json.JSONDecodeError:
             return []
 
     @steps.setter
     def steps(self, value: list[str]) -> None:
-        self.steps_json = json.dumps(list(value), ensure_ascii=False)
+        filtered = [str(s) for s in value if str(s) not in DEPRECATED_SCRIPT_STEPS]
+        self.steps_json = json.dumps(filtered, ensure_ascii=False)
 
 
 class GlossaryTerm(Base):
@@ -212,6 +218,12 @@ class Database:
             current = s.query(AutoScript).filter(AutoScript.name == "Mac dinh").one_or_none()
             if current is not None and current.steps == [STEP_ASR, STEP_TRANSLATE, STEP_RENDER]:
                 current.steps = list(DEFAULT_SCRIPT_STEPS)
+
+            # Chuan hoa va loai bo buoc da bi bo khoi moi kich ban ton tai trong CSDL
+            for sc in s.query(AutoScript).all():
+                raw_json = sc.steps_json or ""
+                if any(dep in raw_json for dep in DEPRECATED_SCRIPT_STEPS):
+                    sc.steps = sc.steps
 
     def recover_interrupted_projects(self) -> int:
         """Xoa trang thai dang chay gia con sot lai sau khi app bi tat."""

@@ -115,7 +115,6 @@ def apply_global_settings(settings: Settings, config: dict[str, Any]) -> None:
     settings.timeline_workers = max(1, min(8, int(config.get("so_luong_render", 2) or 2)))
     settings.limit_cpu = bool(config.get("chong_full_cpu", settings.limit_cpu))
     settings.fast_concat = bool(config.get("concat_fast", settings.fast_concat))
-    settings.format_capcut = bool(config.get("format_video_capcut", settings.format_capcut))
     settings.smart_cut = bool(config.get("smart_cut", settings.smart_cut))
     settings.play_on_edit = bool(config.get("auto_play", settings.play_on_edit))
     settings.edit_volume = max(0, min(100, int(config.get("volume_phat", 42) or 42)))

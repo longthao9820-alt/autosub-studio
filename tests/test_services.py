@@ -642,6 +642,26 @@ class TestDatabase:
             script = session.query(AutoScript).filter(AutoScript.name == "Mac dinh").one()
             assert script.steps == [STEP_ASR, STEP_TRANSLATE, STEP_DUB, STEP_RENDER]
 
+    def test_old_database_script_containing_deprecated_capcut_step_handled_safely(self, tmp_path):
+        from autosub_studio.pipeline.steps import STEP_ASR, STEP_RENDER
+
+        db = Database(tmp_path / "app.db")
+        with db.session() as session:
+            script = AutoScript(name="Custom Script")
+            script.steps_json = json.dumps(["Tao CapCut draft", STEP_ASR, STEP_RENDER])
+            session.add(script)
+
+        # Loading script skips deprecated step without crash
+        with db.session() as session:
+            sc = session.query(AutoScript).filter(AutoScript.name == "Custom Script").one()
+            assert sc.steps == [STEP_ASR, STEP_RENDER]
+
+        # Normalization removes deprecated step from database
+        db.ensure_default_scripts()
+        with db.session() as session:
+            sc = session.query(AutoScript).filter(AutoScript.name == "Custom Script").one()
+            assert json.loads(sc.steps_json) == [STEP_ASR, STEP_RENDER]
+
     def test_recovers_projects_left_running_after_forced_exit(self, tmp_path):
         db = Database(tmp_path / "app.db")
         with db.session() as s:

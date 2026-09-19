@@ -16,7 +16,7 @@ from pathlib import Path
 from ..core import editing, formats
 from ..core.models import Cue
 from ..data.project import ProjectData, ProjectStore
-from ..providers import asr, capcut, diarize, ocr, ocr_ai, ocr_filter, separate, translate, tts
+from ..providers import asr, diarize, ocr, ocr_ai, ocr_filter, separate, translate, tts
 from ..services import gpu, media
 from ..services.ffmpeg import CancelledError, CancelToken, FFmpeg, FFmpegError
 from ..services.paths import safe_name, unique_path
@@ -32,7 +32,6 @@ STEP_ASR = "Lay phu de bang giong noi"
 STEP_TRANSLATE = "Dich phu de"
 STEP_DIARIZE = "Phan tach giong nam / nu"
 STEP_DUB = "Long tieng theo ban dich"
-STEP_CAPCUT = "Tao CapCut draft"
 STEP_BLUR = "Che mo phu de goc"
 STEP_EXPORT = "Xuat goi du an"
 STEP_RENDER = "Render video"
@@ -47,7 +46,6 @@ ALL_STEPS: tuple[str, ...] = (
     STEP_TRANSLATE,
     STEP_DIARIZE,
     STEP_DUB,
-    STEP_CAPCUT,
     STEP_BLUR,
     STEP_EXPORT,
     STEP_RENDER,
@@ -1188,37 +1186,7 @@ def step_export(pc: PipelineContext) -> str:
     pc.project.exported = True  # type: ignore[attr-defined]
     pc.save()
     pc.progress(100)
-    capcut_note = f" {step_capcut(pc)}" if pc.settings.format_capcut else ""
-    return f"Da xuat goi du an vao: {out_dir}.{capcut_note}"
-
-
-def step_capcut(pc: PipelineContext) -> str:
-    """Tao native CapCut draft tu template/effect nguoi dung da chon."""
-    pc.require_cues()
-    template = Path(pc.settings.capcut_template_draft)
-    if not template.is_dir():
-        raise StepError("Chua chon CapCut draft mau trong Cau Hinh Chung.")
-    video_value = pc.project.dub_video_path or pc.project.render_path or pc.project.video_path
-    video = Path(video_value)
-    if not video.is_file():
-        raise StepError("Khong co video de tao CapCut draft.")
-    info = pc.ff.probe(video)
-    try:
-        draft = capcut.export_draft(
-            template,
-            capcut.drafts_root(pc.settings.capcut_path),
-            f"{pc.project.name} - AutoSub",
-            video,
-            pc.project.doc,
-            duration=info.duration or pc.project.duration,
-            width=info.width or pc.project.width,
-            height=info.height or pc.project.height,
-            timing=pc.project.dub_timing if pc.project.dub_video_path else None,
-            text_mode="translation" if pc.project.doc.translated_count else "original",
-        )
-    except capcut.CapCutError as exc:
-        raise StepError(str(exc)) from exc
-    return f"Da tao CapCut draft: {draft}."
+    return f"Da xuat goi du an vao: {out_dir}."
 
 
 STEP_FUNCTIONS: dict[str, Callable[[PipelineContext], str]] = {
@@ -1231,7 +1199,6 @@ STEP_FUNCTIONS: dict[str, Callable[[PipelineContext], str]] = {
     STEP_TRANSLATE: step_translate,
     STEP_DIARIZE: step_diarize,
     STEP_DUB: step_dub,
-    STEP_CAPCUT: step_capcut,
     STEP_BLUR: step_blur,
     STEP_EXPORT: step_export,
     STEP_RENDER: step_render,
