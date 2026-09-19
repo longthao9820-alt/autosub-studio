@@ -115,6 +115,11 @@ foreach ($doc in @("HUONG-DAN.txt", "README.md", "NTS_FEATURE_MATRIX.md", "NTS_A
 $lic = Join-Path $root "LICENSE"
 if (Test-Path $lic) { Copy-Item $lic (Join-Path $out "LICENSE-AutoSubStudio.txt") -Force }
 
+$scriptsOut = Join-Path $out "scripts"
+New-Item -ItemType Directory -Force -Path $scriptsOut | Out-Null
+$updaterPy = Join-Path $root "scripts\updater.py"
+if (Test-Path $updaterPy) { Copy-Item $updaterPy $scriptsOut -Force }
+
 @"
 @echo off
 rem Kiem tra nhanh xem may nay co chay duoc AutoSub Studio khong (~10 giay).
@@ -143,6 +148,7 @@ $checks = @{
     "Piper TTS"   = Join-Path $out "_internal\piper\piper.exe"
     "thu vien LUT" = Join-Path $out "_internal\lut"
     "thu vien font" = Join-Path $out "_internal\fonts"
+    "AutoSubUpdater" = Join-Path $out "AutoSubUpdater.exe"
 }
 foreach ($name in $checks.Keys) {
     if (Test-Path $checks[$name]) { Write-Host "  [OK]   $name da duoc nhung" }

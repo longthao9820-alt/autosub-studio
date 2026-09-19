@@ -12,8 +12,9 @@ import sys
 import threading
 from functools import partial
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import QEvent, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -55,10 +56,19 @@ from ..providers.local_voice import (
 )
 from ..services import gpu
 from ..services.ffmpeg import CancelToken, FFmpeg, FFmpegError
-from ..services.paths import bundled_dir, ensure_workspace, safe_name
+from ..services.paths import app_root, bundled_dir, ensure_workspace, safe_name
 from ..services.presets import PresetManager
 from ..services.settings import Settings, SubtitleStyle
 from ..services.tasks import CANCELLED, DONE, PENDING, RUNNING, TaskContext, TaskManager
+from ..services.updater import (
+    ReleaseInfo,
+    download_release_asset,
+    extract_update_archive,
+    fetch_latest_release,
+    get_staging_dir,
+    launch_updater_helper,
+    verify_package_layout,
+)
 from .cue_table import CueTableModel, CueTableView
 from .dialogs import (
     AIGatewayDialog,
@@ -112,6 +122,53 @@ VIDEO_FILTER = (
 SUB_FILTER = "Phu de (*.srt *.vtt *.ass *.ssa *.txt);;Tat ca (*.*)"
 
 
+class _CheckUpdateWorker(QThread):
+    finished = Signal(object, str)  # ReleaseInfo | None, error message
+
+    def run(self) -> None:
+        try:
+            rel = fetch_latest_release(timeout=15.0)
+            self.finished.emit(rel, "")
+        except Exception as exc:
+            self.finished.emit(None, str(exc))
+
+
+class _DownloadUpdateWorker(QThread):
+    progress = Signal(int, int)  # downloaded, total
+    finished = Signal(bool, object, str)  # success, payload_dir, error message
+
+    def __init__(self, release: ReleaseInfo, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.release = release
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            staging_dir = get_staging_dir(self.release.version)
+
+            def on_progress(cur: int, tot: int) -> None:
+                self.progress.emit(cur, tot)
+
+            def cancel_flag() -> bool:
+                return self._cancelled
+
+            zip_path = download_release_asset(
+                self.release,
+                staging_dir,
+                on_progress=on_progress,
+                cancel_flag=cancel_flag,
+            )
+            payload_dir = extract_update_archive(zip_path, staging_dir)
+            if not verify_package_layout(payload_dir):
+                raise ValueError("Cấu trúc gói cập nhật tải về không hợp lệ.")
+            self.finished.emit(True, payload_dir, "")
+        except Exception as exc:
+            self.finished.emit(False, None, str(exc))
+
+
 class MainWindow(QMainWindow):
     """Cua so chinh: trinh phat, bang phu de, danh sach du an va cac tab quy trinh."""
 
@@ -160,6 +217,9 @@ class MainWindow(QMainWindow):
         self._batch_total = 0
         self._batch_done = 0
         self._batch_failed = 0
+        self._check_update_worker: _CheckUpdateWorker | None = None
+        self._download_update_worker: _DownloadUpdateWorker | None = None
+        self._latest_release_info: ReleaseInfo | None = None
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.resize(1500, 940)
@@ -172,6 +232,9 @@ class MainWindow(QMainWindow):
         self._refresh_scripts()
         self._open_last_project()
         self._check_environment()
+
+        if self.settings.auto_check_update:
+            QTimer.singleShot(1500, lambda: self._check_for_updates(silent=True))
 
         self._autosave = QTimer(self)
         self._autosave.timeout.connect(self._autosave_tick)
@@ -811,6 +874,10 @@ class MainWindow(QMainWindow):
         self.settings_panel.exportContent.connect(lambda: self._export_subtitle(".srt"))
         self.settings_panel.edit_volume.valueChanged.connect(self.player.volume.setValue)
         self.settings_panel.chooseOutputFolder.connect(self._choose_output_folder)
+        self.settings_panel.checkUpdateRequested.connect(
+            lambda: self._check_for_updates(silent=False)
+        )
+        self.settings_panel.applyUpdateRequested.connect(self._start_update_download)
 
         self.tasks.task_started.connect(self._on_task_started)
         self.tasks.task_progress.connect(self._on_task_progress)
@@ -827,6 +894,86 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self._load_settings_into_ui()
             self._log("Đã lưu cấu hình AI Gateway.")
+
+    # ------------------------------------------------------------------ cap nhat
+
+    def _check_for_updates(self, silent: bool = False) -> None:
+        if self._check_update_worker and self._check_update_worker.isRunning():
+            return
+        if not silent:
+            self.settings_panel.lbl_update_status.setText("Đang kiểm tra bản cập nhật mới...")
+            self.settings_panel.btn_check_update.setEnabled(False)
+
+        self._check_update_worker = _CheckUpdateWorker(self)
+        self._check_update_worker.finished.connect(
+            lambda rel, err: self._on_check_update_finished(rel, err, silent)
+        )
+        self._check_update_worker.start()
+
+    def _on_check_update_finished(
+        self, release: ReleaseInfo | None, error: str, silent: bool
+    ) -> None:
+        self.settings_panel.btn_check_update.setEnabled(True)
+        if error:
+            if not silent:
+                self.settings_panel.lbl_update_status.setText(f"Lỗi kiểm tra cập nhật: {error}")
+            return
+
+        if not release:
+            if not silent:
+                self.settings_panel.lbl_update_status.setText(
+                    "Không tìm thấy bản cập nhật mới trên kênh Stable."
+                )
+            return
+
+        if release.is_newer:
+            self._latest_release_info = release
+            self.settings_panel.show_update_info(release)
+            if not silent:
+                self._log(f"Đã tìm thấy bản cập nhật mới: v{release.version}")
+        else:
+            self.settings_panel.lbl_update_status.setText(
+                f"Bạn đang sử dụng phiên bản mới nhất ({APP_VERSION})."
+            )
+            self.settings_panel.update_details.hide()
+
+    def _start_update_download(self) -> None:
+        if not self._latest_release_info:
+            return
+        if self._download_update_worker and self._download_update_worker.isRunning():
+            return
+
+        self.settings_panel.btn_update_now.setEnabled(False)
+        self.settings_panel.lbl_update_status.setText("Đang chuẩn bị tải bản cập nhật...")
+        self.settings_panel.update_progress.show()
+        self.settings_panel.update_progress.setValue(0)
+
+        self._download_update_worker = _DownloadUpdateWorker(self._latest_release_info, self)
+        self._download_update_worker.progress.connect(self._on_download_update_progress)
+        self._download_update_worker.finished.connect(self._on_download_update_finished)
+        self._download_update_worker.start()
+
+    def _on_download_update_progress(self, downloaded: int, total: int) -> None:
+        self.settings_panel.set_update_progress(downloaded, total)
+
+    def _on_download_update_finished(self, success: bool, payload_dir: Any, error: str) -> None:
+        if not success or not payload_dir:
+            self.settings_panel.lbl_update_status.setText(f"Tải cập nhật thất bại: {error}")
+            self.settings_panel.btn_update_now.setEnabled(True)
+            self.settings_panel.update_progress.hide()
+            QMessageBox.critical(self, "Lỗi tải cập nhật", f"Không thể tải bản cập nhật:\n{error}")
+            return
+
+        self.settings_panel.lbl_update_status.setText(
+            "Đã tải xong. Khởi chạy cập nhật và đóng ứng dụng..."
+        )
+        try:
+            launch_updater_helper(app_root(), Path(payload_dir), restart=True)
+            QApplication.quit()
+        except Exception as exc:
+            self.settings_panel.lbl_update_status.setText(f"Lỗi khởi chạy cập nhật: {exc}")
+            self.settings_panel.btn_update_now.setEnabled(True)
+            QMessageBox.critical(self, "Lỗi cập nhật", f"Không thể khởi chạy cập nhật:\n{exc}")
 
     def _load_settings_into_ui(self) -> None:
         api_key = Settings.get_secret("ai_gateway_key")

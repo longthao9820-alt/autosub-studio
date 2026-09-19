@@ -137,10 +137,44 @@ exe = EXE(
     entitlements_file=None,
 )
 
+updater_a = Analysis(
+    ["scripts/updater.py"],
+    pathex=["src"],
+    binaries=[],
+    datas=[],
+    hiddenimports=["autosub_updater", "autosub_updater.main"],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=["tkinter", "matplotlib", "torch", "torchaudio", "torchvision", "PySide6"],
+    noarchive=False,
+)
+updater_pyz = PYZ(updater_a.pure)
+updater_exe = EXE(
+    updater_pyz,
+    updater_a.scripts,
+    [],
+    exclude_binaries=True,
+    name="AutoSubUpdater",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
 coll = COLLECT(
     exe,
+    updater_exe,
     a.binaries,
     a.datas,
+    updater_a.binaries,
+    updater_a.datas,
     strip=False,
     upx=False,
     upx_exclude=[],

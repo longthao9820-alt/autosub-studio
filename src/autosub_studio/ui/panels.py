@@ -19,20 +19,26 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSlider,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ..pipeline import steps as pipeline_steps
 from ..providers import asr, ocr, ocr_filter, separate, translate
+from ..services.paths import human_size
 from ..services.settings import Settings
+from ..services.updater import ReleaseInfo
+from ..version import APP_VERSION
 from .style import BLUE, GREEN, MUTED
 from .widgets import VerticalTabStrip, field_label
 
@@ -1591,6 +1597,8 @@ class SettingsPanel(QWidget):
     exportProject = Signal()
     exportContent = Signal()
     chooseOutputFolder = Signal()
+    checkUpdateRequested = Signal()
+    applyUpdateRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1600,6 +1608,7 @@ class SettingsPanel(QWidget):
         layout.addWidget(self._build_app_box())
         layout.addWidget(self._build_render_box())
         layout.addWidget(self._build_edit_box())
+        layout.addWidget(self._build_update_box())
         layout.addLayout(self._build_bottom_row())
 
     def _build_render_box(self) -> QGroupBox:
@@ -1772,6 +1781,103 @@ class SettingsPanel(QWidget):
         grid.addWidget(self.edit_color)
         return box
 
+    def _build_update_box(self) -> QGroupBox:
+        box = QGroupBox("Cập Nhật Ứng Dụng")
+        vbox = QVBoxLayout(box)
+        vbox.setContentsMargins(10, 10, 10, 8)
+        vbox.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        self.lbl_current_version = QLabel(f"Phiên bản hiện tại: {APP_VERSION}")
+        self.lbl_channel = QLabel("Kênh: Stable")
+        self.lbl_channel.setObjectName("Muted")
+        self.auto_check_update = QCheckBox("Tự động kiểm tra bản cập nhật khi khởi động")
+        self.btn_check_update = QPushButton("Kiểm Tra Cập Nhật")
+        self.btn_check_update.clicked.connect(self.checkUpdateRequested.emit)
+
+        top_row.addWidget(self.lbl_current_version)
+        top_row.addWidget(self.lbl_channel)
+        top_row.addWidget(self.auto_check_update)
+        top_row.addStretch(1)
+        top_row.addWidget(self.btn_check_update)
+        vbox.addLayout(top_row)
+
+        self.lbl_update_status = QLabel("Chưa kiểm tra")
+        self.lbl_update_status.setObjectName("Muted")
+        vbox.addWidget(self.lbl_update_status)
+
+        self.update_details = QWidget()
+        details_layout = QVBoxLayout(self.update_details)
+        details_layout.setContentsMargins(0, 4, 0, 0)
+        details_layout.setSpacing(6)
+
+        info_row = QHBoxLayout()
+        self.lbl_new_version = QLabel("Phiên bản mới: -")
+        self.lbl_new_version.setStyleSheet("font-weight: bold; color: #4CAF50;")
+        self.lbl_update_size = QLabel("Dung lượng: -")
+        self.lbl_update_size.setObjectName("Muted")
+        self.btn_update_now = QPushButton("Cập Nhật Ngay")
+        self.btn_update_now.clicked.connect(self._on_update_now_clicked)
+
+        info_row.addWidget(self.lbl_new_version)
+        info_row.addWidget(self.lbl_update_size)
+        info_row.addStretch(1)
+        info_row.addWidget(self.btn_update_now)
+        details_layout.addLayout(info_row)
+
+        self.txt_changelog = QTextEdit()
+        self.txt_changelog.setReadOnly(True)
+        self.txt_changelog.setMaximumHeight(85)
+        self.txt_changelog.setPlaceholderText("Thông tin cập nhật / changelog...")
+        details_layout.addWidget(self.txt_changelog)
+
+        self.update_progress = QProgressBar()
+        self.update_progress.setRange(0, 100)
+        self.update_progress.setValue(0)
+        self.update_progress.hide()
+        details_layout.addWidget(self.update_progress)
+
+        self.update_details.hide()
+        vbox.addWidget(self.update_details)
+        return box
+
+    def _on_update_now_clicked(self) -> None:
+        ver = getattr(self, "_available_version", "")
+        reply = QMessageBox.question(
+            self,
+            "Xác nhận cập nhật",
+            f"Bạn có chắc muốn tải về và cài đặt bản cập nhật {ver} không?\n\n"
+            "Ứng dụng sẽ tải gói cập nhật, xác thực mã băm SHA256 an toàn và tự động "
+            "khởi động lại sau khi hoàn tất.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.applyUpdateRequested.emit()
+
+    def show_update_info(self, release: ReleaseInfo) -> None:
+        self._available_version = release.version
+        self.lbl_new_version.setText(f"Phiên bản mới: v{release.version}")
+        size_str = human_size(release.asset_size) if release.asset_size > 0 else "Không rõ"
+        self.lbl_update_size.setText(f"Dung lượng: {size_str}")
+        self.txt_changelog.setPlainText(release.changelog or "Không có ghi chú phát hành.")
+        self.lbl_update_status.setText(f"Đã tìm thấy bản cập nhật mới v{release.version}!")
+        self.btn_update_now.setEnabled(True)
+        self.update_progress.hide()
+        self.update_details.show()
+
+    def set_update_progress(self, downloaded: int, total: int) -> None:
+        self.update_progress.show()
+        if total > 0:
+            percent = int((downloaded / total) * 100)
+            self.update_progress.setValue(percent)
+            cur = human_size(downloaded)
+            tot = human_size(total)
+            self.lbl_update_status.setText(f"Đang tải bản cập nhật: {percent}% ({cur} / {tot})")
+        else:
+            self.lbl_update_status.setText(f"Đang tải bản cập nhật: {human_size(downloaded)}")
+
     def _build_bottom_row(self) -> QHBoxLayout:
         self.btn_import_project = QPushButton("Nhập Project")
         self.btn_export_project = QPushButton("Xuất Project")
@@ -1802,6 +1908,7 @@ class SettingsPanel(QWidget):
         self.edit_volume.setValue(s.edit_volume)
         self.enter_newline.setChecked(s.enter_newline)
         self.left_screen.setChecked(s.left_screen)
+        self.auto_check_update.setChecked(bool(s.auto_check_update))
         self.gpu_status.setText(
             "Đã kiểm tra cấu hình máy"
             if s.hardware_signature
@@ -1836,6 +1943,7 @@ class SettingsPanel(QWidget):
         s.edit_volume = self.edit_volume.value()
         s.enter_newline = self.enter_newline.isChecked()
         s.left_screen = self.left_screen.isChecked()
+        s.auto_check_update = self.auto_check_update.isChecked()
 
 
 __all__ = [
