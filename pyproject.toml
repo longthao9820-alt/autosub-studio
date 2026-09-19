@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autosub-studio"
-version = "1.2.0"
 description = "Cong cu tach phu de, dich va long tieng video tu dong"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+dynamic = ["version"]
 dependencies = [
     "PySide6>=6.6",
     "SQLAlchemy>=2.0",
@@ -25,6 +25,9 @@ dev = ["pytest>=8.0", "pytest-qt>=4.4", "ruff>=0.6", "mypy>=1.11", "pyinstaller>
 
 [project.scripts]
 autosub-studio = "autosub_studio.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "autosub_studio.version.APP_VERSION" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -47,4 +50,5 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = "-q"

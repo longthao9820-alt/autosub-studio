@@ -485,7 +485,7 @@ class MainWindow(QMainWindow):
                 "B1: Tách Sub",
                 "B2: Dịch Nội Dung",
                 "B3: Ghép Giọng Đọc",
-                "B4: Tự Động Hóa CapCut",
+                "B4: Render & Xuất Video",
                 "Cấu Hình Chung",
             ]
         )
@@ -495,7 +495,7 @@ class MainWindow(QMainWindow):
             self.subtitle_panel,
             self.translate_panel,
             self.dub_panel,
-            self.capcut_panel,
+            self.render_panel,
             self.settings_panel,
         ):
             self.tab_stack.addWidget(page)
@@ -522,30 +522,10 @@ class MainWindow(QMainWindow):
         self.main_split.setStretchFactor(1, 5)
         self.main_split.setSizes([455, 465])
 
-        self.dub_admin_bar = QWidget()
-        dub_admin_row = QHBoxLayout(self.dub_admin_bar)
-        dub_admin_row.setContentsMargins(0, 0, 0, 0)
-        dub_admin_row.setSpacing(4)
-        dub_admin_row.addStretch(1)
-        for index, text in enumerate(
-            ("TAB-1: Chỉnh Sửa Nội Dung", "TAB-2: Gia Hạn", "TAB-3: Quản Lý Nhân Viên")
-        ):
-            button = QPushButton(text)
-            button.setObjectName("Blue")
-            if index == 0:
-                button.setStyleSheet(
-                    f"background:{GREEN}; border-bottom:3px solid #f1dd16; "
-                    "border-radius:6px 6px 0 0;"
-                )
-            dub_admin_row.addWidget(button)
-        dub_admin_row.addStretch(1)
-        self.dub_admin_bar.hide()
-
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 5, 4, 2)
         layout.setSpacing(2)
-        layout.addWidget(self.dub_admin_bar)
         layout.addWidget(self.main_split)
         self.setCentralWidget(container)
 
@@ -2809,7 +2789,6 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int) -> None:
         """Nap danh sach giong doc lan dau mo tab long tieng cho do cho luc khoi dong."""
-        self.dub_admin_bar.setVisible(self.tab_stack.widget(index) is self.dub_panel)
         if self.tab_stack.widget(index) is self.dub_panel and not self._voices_loaded:
             self._voices_loaded = True
             self._refresh_voices()

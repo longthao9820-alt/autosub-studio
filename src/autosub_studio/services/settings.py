@@ -13,7 +13,7 @@ from .paths import config_dir, default_workspace, is_portable, write_text_atomic
 
 CONFIG_NAME = "config.json"
 SECRETS_NAME = "secrets.dat"
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def _is_moved_portable_workspace(value: str) -> bool:
@@ -169,6 +169,21 @@ class Settings:
     render_scale: str = "giu nguyen"
     render_fps: str = "giu nguyen"
 
+    # AI Gateway
+    ai_endpoint: str = ""
+    ai_model_sub: str = "sub"
+    ai_thinking_sub: str = "low"
+    ai_model_prime: str = "prime"
+    ai_thinking_prime: str = "medium"
+
+    # Export & Update
+    output_folder: str = ""
+    auto_check_update: bool = True
+
+    # Voice & Preset
+    local_voice: str = ""
+    default_preset: str = "DEFAULT"
+
     # Cau hinh tuy chinh giong NTS: moi profile la mot ban chup setting, khong
     # chua duong dan may, dau van tay phan cung hay chinh danh sach profile.
     active_config_profile: str = "default"
@@ -177,6 +192,9 @@ class Settings:
     capcut_template_draft: str = ""
     download_folder: str = ""
     download_proxy: str = ""
+
+    # Du lieu mo rong tu ban cu hoac tuy bien khong bi mat
+    extra: dict[str, Any] = field(default_factory=dict)
 
     style: SubtitleStyle = field(default_factory=SubtitleStyle)
 
@@ -195,6 +213,14 @@ class Settings:
             "hardware_machine_id",
             "active_config_profile",
             "config_profiles",
+            "extra",
+            "output_folder",
+            "auto_check_update",
+            "ai_endpoint",
+            "ai_model_sub",
+            "ai_thinking_sub",
+            "ai_model_prime",
+            "ai_thinking_prime",
         }
         return {key: value for key, value in asdict(self).items() if key not in excluded}
 
@@ -244,12 +270,14 @@ class Settings:
         legacy_ocr = "ocr_mode" not in data
         style = data.pop("style", None)
         for key, value in data.items():
-            if hasattr(settings, key) and key != "style":
+            if hasattr(settings, key) and key not in {"style", "extra"}:
                 try:
                     current = getattr(settings, key)
                     setattr(settings, key, type(current)(value) if current is not None else value)
                 except (TypeError, ValueError):
                     continue
+            elif key != "style":
+                settings.extra[key] = value
         if isinstance(style, dict):
             settings.style = SubtitleStyle.from_dict(style)
         # Nang cap mot lan sang bo PP-OCRv4 Mobile giong NTS. Viec nay cung
@@ -303,6 +331,46 @@ class Settings:
             settings.tts_voice_profiles = []
             migrated_voice = True
             settings.tts_fit_timing = settings.dub_timing_mode == "subtitle"
+        if old_schema < 12:
+            if not settings.default_preset:
+                settings.default_preset = "DEFAULT"
+            if not settings.ai_model_sub:
+                settings.ai_model_sub = "sub"
+            if not settings.ai_model_prime:
+                settings.ai_model_prime = "prime"
+            if settings.translate_provider in {
+                "Claude (can khoa API)",
+                "Claude",
+                "claude",
+            }:
+                settings.translate_provider = "AI Gateway"
+            if old_schema == 11 and settings.tts_provider in {
+                "VoiceStudio Local (English US)",
+                "Windows SAPI (offline)",
+                "Edge TTS (can Internet)",
+                "VoiceStudio",
+                "SAPI",
+                "Edge",
+            }:
+                settings.tts_provider = "Local Voice"
+                migrated_voice = True
+            for prof in settings.config_profiles.values():
+                if isinstance(prof, dict):
+                    if old_schema == 11 and prof.get("tts_provider") in {
+                        "VoiceStudio Local (English US)",
+                        "Windows SAPI (offline)",
+                        "Edge TTS (can Internet)",
+                        "VoiceStudio",
+                        "SAPI",
+                        "Edge",
+                    }:
+                        prof["tts_provider"] = "Local Voice"
+                    if prof.get("translate_provider") in {
+                        "Claude (can khoa API)",
+                        "Claude",
+                        "claude",
+                    }:
+                        prof["translate_provider"] = "AI Gateway"
         # Ban schema 1 dat nham +100 (muc cuc dai) lam mac dinh, khien net
         # chu Trung Quoc bi bet/mat khi loc mau. Dua gia tri mac dinh cu ve
         # trung tinh; cac gia tri nguoi dung chon khac van duoc giu nguyen.
@@ -355,7 +423,11 @@ class Settings:
 
     def save(self) -> Path:
         data = asdict(self)
+        extra = data.pop("extra", {})
         data["style"] = self.style.to_dict()
+        for k, v in extra.items():
+            if k not in data:
+                data[k] = v
         return write_text_atomic(self.config_path(), json.dumps(data, ensure_ascii=False, indent=2))
 
     # ------------------------------------------------------------------ khoa API

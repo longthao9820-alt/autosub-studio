@@ -30,8 +30,9 @@ dist-*/
 *.egg-info/
 
 # User data, workspace & configs
-Data/
-**/Data/
+# Root-only: Git ignore is case-insensitive on Windows; a recursive Data/ rule
+# would accidentally hide the source package src/autosub_studio/data/.
+/Data/
 *.db
 *.sqlite
 *.sqlite3

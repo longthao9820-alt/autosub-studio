@@ -823,7 +823,6 @@ class TranslatePanel(QWidget):
         self.max_gap.setRange(0, 5000)
         self.max_gap.setSuffix(" ms")
         self.max_gap.setEnabled(False)
-        self.btn_reformat = QPushButton("Định Dạng Lại")
 
         self.btn_all = QPushButton("START: Dịch Phụ Đề")
         self.btn_selected = QPushButton("Dịch Các Câu Đang Chọn")
@@ -879,7 +878,6 @@ class TranslatePanel(QWidget):
             _row(
                 "Định Dạng Lại Văn Bản Dịch",
                 self.text_format,
-                self.btn_reformat,
                 self.auto_join,
                 "Khoảng Hở Tối Đa:",
                 self.max_gap,
@@ -1669,18 +1667,14 @@ class SettingsPanel(QWidget):
             )
         ):
             grid.addWidget(widget, 0, col)
-        for col, text in enumerate(
-            (
-                "Cấu Hình Xóa Thoại Và Nhạc Nền  ⚙",
-                "Intro & Outro  ⚙",
-                "Cấu Hình API AI  ⚙",
-                "Hiệu Ứng Video  ⚙",
-                "Cài Đặt Xuất Video  ⚙",
-            )
-        ):
-            button = QPushButton(text)
-            button.setObjectName("Flat")
-            grid.addWidget(button, 1, col)
+        self.btn_ai_gateway = QPushButton("AI Gateway  ⚙")
+        self.btn_ai_gateway.setObjectName("Flat")
+        self.btn_ai_gateway.setEnabled(False)
+        self.btn_ai_gateway.setToolTip("Sẽ khả dụng trong bản cập nhật AI Gateway")
+        self.btn_export_settings = QPushButton("Cài Đặt Xuất Video  ⚙")
+        self.btn_export_settings.setObjectName("Flat")
+        grid.addWidget(self.btn_ai_gateway, 1, 0)
+        grid.addWidget(self.btn_export_settings, 1, 1)
         grid.setColumnStretch(5, 1)
 
         for hidden in (self.scale, self.fps, self.gpu_status):

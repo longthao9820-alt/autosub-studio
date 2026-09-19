@@ -1,7 +1,5 @@
 """AutoSub Studio - cong cu tach phu de, dich va long tieng video."""
 
-APP_NAME = "AutoSub Studio"
-APP_VERSION = "1.2.0"
-ORG_NAME = "AutoSubStudio"
+from .version import APP_NAME, APP_VERSION, ORG_NAME, __version__
 
-__all__ = ["APP_NAME", "APP_VERSION", "ORG_NAME"]
+__all__ = ["APP_NAME", "APP_VERSION", "ORG_NAME", "__version__"]
