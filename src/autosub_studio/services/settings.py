@@ -127,7 +127,7 @@ class Settings:
     source_language: str = "auto"
     target_language: str = "vi"
     translate_context: int = 2
-    llm_model: str = "claude-opus-5"
+    llm_model: str = "sub"
 
     # Long tieng
     tts_provider: str = "VoiceStudio Local (English US)"
@@ -175,6 +175,7 @@ class Settings:
     ai_thinking_sub: str = "low"
     ai_model_prime: str = "prime"
     ai_thinking_prime: str = "medium"
+    ocr_ai_model: str = "sub"
 
     # Export & Update
     output_folder: str = ""
@@ -221,6 +222,7 @@ class Settings:
             "ai_thinking_sub",
             "ai_model_prime",
             "ai_thinking_prime",
+            "ocr_ai_model",
         }
         return {key: value for key, value in asdict(self).items() if key not in excluded}
 
@@ -256,6 +258,12 @@ class Settings:
     @classmethod
     def load(cls) -> Settings:
         """Doc cau hinh. Neu tep hong thi dung mac dinh, khong lam sap ung dung."""
+        with contextlib.suppress(Exception):
+            old_claude = cls.get_secret("claude_api_key")
+            if old_claude and not cls.get_secret("ai_gateway_key"):
+                cls.set_secret("ai_gateway_key", old_claude)
+            if old_claude:
+                cls.set_secret("claude_api_key", "")
         path = cls.config_path()
         if not path.is_file():
             return cls()
@@ -344,6 +352,14 @@ class Settings:
                 "claude",
             }:
                 settings.translate_provider = "AI Gateway"
+            if settings.llm_model in {
+                "claude-opus-5",
+                "claude-sonnet-5",
+                "claude-haiku-4-5",
+            } or not settings.llm_model:
+                settings.llm_model = "sub"
+            if not settings.ocr_ai_model:
+                settings.ocr_ai_model = "sub"
             if old_schema == 11 and settings.tts_provider in {
                 "VoiceStudio Local (English US)",
                 "Windows SAPI (offline)",

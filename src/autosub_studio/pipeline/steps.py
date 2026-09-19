@@ -16,7 +16,7 @@ from pathlib import Path
 from ..core import editing, formats
 from ..core.models import Cue
 from ..data.project import ProjectData, ProjectStore
-from ..providers import asr, capcut, diarize, ocr, ocr_filter, separate, translate, tts
+from ..providers import asr, capcut, diarize, ocr, ocr_ai, ocr_filter, separate, translate, tts
 from ..services import gpu, media
 from ..services.ffmpeg import CancelledError, CancelToken, FFmpeg, FFmpegError
 from ..services.paths import safe_name, unique_path
@@ -392,17 +392,29 @@ def _prepare_filter(pc: PipelineContext, frames: list[Path]) -> ocr_filter.TextF
     return flt
 
 
+def is_ai_ocr(settings: Settings) -> bool:
+    mode = (settings.ocr_mode or "").strip().lower()
+    server = (settings.ocr_server or "").strip().lower()
+    return (
+        "ocr ai" in mode
+        or "server ai" in mode
+        or "server ai" in server
+        or "ai gateway" in server
+    )
+
+
 def step_ocr(pc: PipelineContext) -> str:
     """Lay phu de bang cach doc chu chay san tren hinh."""
-    if not ocr.is_available():
+    s = pc.settings
+    ai_mode = is_ai_ocr(s)
+    if not ai_mode and not ocr.is_available():
         raise StepError(ocr.install_hint())
     video = pc.require_video()
     region = pc.project.ocr_region
     if not region or len(region) != 4:
         raise StepError("Chua khoanh vung chu tren hinh. Vao tab B1, bam 'Khoanh vung OCR' truoc.")
     frames_dir = pc.project.sub_dir("temp") / "ocr_frames"
-    s = pc.settings
-    fast_nts = ocr.is_nts_profile(s.ocr_server or s.ocr_mode)
+    fast_nts = ocr.is_nts_profile(s.ocr_server or s.ocr_mode) and not ai_mode
     source_fps = 0.0
     if fast_nts:
         with contextlib.suppress(FFmpegError, OSError):
@@ -431,28 +443,58 @@ def step_ocr(pc: PipelineContext) -> str:
     flt = _prepare_filter(pc, frames)
     pc.check()
     pc.log(f"Doc chu tren {len(frames)} khung hinh...")
-    refine = bool(s.ocr_refine) and not fast_nts
+    refine = bool(s.ocr_refine) and not fast_nts and not ai_mode
     weight = 0.42 if refine else 0.55
-    cues = ocr.read_frames(
-        frames,
-        fps=fps,
-        stamps=stamps,
-        similarity=s.ocr_similarity,
-        min_confidence=s.ocr_confidence / 100.0,
-        min_duration=s.ocr_min_duration,
-        use_gpu=s.use_gpu,
-        profile=s.ocr_server or s.ocr_mode,
-        batch_size=s.ocr_batch_size,
-        consensus=s.ocr_consensus,
-        text_filter=flt,
-        on_progress=lambda p: pc.progress(43 + int(p * weight)),
-        on_log=pc.log,
-        should_cancel=lambda: pc.token.cancelled,
-        cache_path=(Path(pc.project.folder) / "ocr_cache.sqlite3")
-        if s.ocr_cache_enabled
-        else None,
-        cache_key=_ocr_cache_key(video, region, fps, s, flt) if s.ocr_cache_enabled else "",
-    )
+    if ai_mode:
+        key = pc.api_key or Settings.get_secret("ai_gateway_key")
+        if not s.ai_endpoint.strip():
+            raise StepError("Chưa cấu hình Endpoint AI Gateway cho OCR AI.")
+        if not key.strip():
+            raise StepError("Chưa có khóa API cho AI Gateway.")
+        cues = ocr_ai.read_frames_ai(
+            frames,
+            fps=fps,
+            stamps=stamps,
+            similarity=s.ocr_similarity,
+            min_duration=s.ocr_min_duration,
+            model=getattr(s, "ocr_ai_model", "sub") or "sub",
+            endpoint=s.ai_endpoint,
+            api_key=key,
+            consensus=s.ocr_consensus,
+            text_filter=flt,
+            on_progress=lambda p: pc.progress(43 + int(p * weight)),
+            on_log=pc.log,
+            should_cancel=lambda: pc.token.cancelled,
+            cache_path=(Path(pc.project.folder) / "ocr_cache.sqlite3")
+            if s.ocr_cache_enabled
+            else None,
+            cache_key=_ocr_cache_key(video, region, fps, s, flt)
+            if s.ocr_cache_enabled
+            else "",
+        )
+    else:
+        cues = ocr.read_frames(
+            frames,
+            fps=fps,
+            stamps=stamps,
+            similarity=s.ocr_similarity,
+            min_confidence=s.ocr_confidence / 100.0,
+            min_duration=s.ocr_min_duration,
+            use_gpu=s.use_gpu,
+            profile=s.ocr_server or s.ocr_mode,
+            batch_size=s.ocr_batch_size,
+            consensus=s.ocr_consensus,
+            text_filter=flt,
+            on_progress=lambda p: pc.progress(43 + int(p * weight)),
+            on_log=pc.log,
+            should_cancel=lambda: pc.token.cancelled,
+            cache_path=(Path(pc.project.folder) / "ocr_cache.sqlite3")
+            if s.ocr_cache_enabled
+            else None,
+            cache_key=_ocr_cache_key(video, region, fps, s, flt)
+            if s.ocr_cache_enabled
+            else "",
+        )
     pc.check()
     if not cues:
         raise StepError("Khong doc duoc chu nao trong vung da khoanh.")

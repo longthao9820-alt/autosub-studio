@@ -1,4 +1,4 @@
-"""Dich phu de: Google mien phi, mo hinh ngon ngu Claude, hoac giu nguyen."""
+"""Dich phu de: Google mien phi, AI Gateway (chuan OpenAI HTTP), hoac giu nguyen."""
 
 from __future__ import annotations
 
@@ -8,11 +8,19 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from ..services import ai_gateway
+from ..services.settings import Settings
+
 PROVIDER_NONE = "Khong dich (giu nguyen)"
 PROVIDER_GOOGLE = "Google (mien phi)"
-PROVIDER_CLAUDE = "Claude (can khoa API)"
+PROVIDER_SERVER_AI = "Server AI API"
+PROVIDER_AI = "AI Gateway"
+PROVIDER_CLAUDE = "Claude (can khoa API)"  # alias tuong thich cu
 
-PROVIDERS = (PROVIDER_GOOGLE, PROVIDER_CLAUDE, PROVIDER_NONE)
+PROVIDERS = (PROVIDER_GOOGLE, PROVIDER_SERVER_AI, PROVIDER_NONE)
+
+AI_MODELS = ("sub", "prime")
+CLAUDE_MODELS = AI_MODELS  # alias tuong thich cu
 
 # Ma ngon ngu -> ten hien thi tren giao dien.
 LANGUAGES: dict[str, str] = {
@@ -34,7 +42,6 @@ LANGUAGES: dict[str, str] = {
     "pt": "Tieng Bo Dao Nha",
 }
 
-CLAUDE_MODELS = ("claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5")
 _TAG_RE = re.compile(r"</?[a-zA-Z_][^>]*>")
 
 
@@ -76,6 +83,16 @@ def available_providers() -> list[str]:
     return list(PROVIDERS)
 
 
+def is_ai_provider(provider: str) -> bool:
+    return provider in (
+        PROVIDER_SERVER_AI,
+        PROVIDER_AI,
+        PROVIDER_CLAUDE,
+        "Server AI API",
+        "AI Gateway",
+    )
+
+
 def provider_ready(provider: str, api_key: str = "") -> tuple[bool, str]:
     """Kiem tra nha cung cap co dung duoc khong. Tra ve (san sang, ly do)."""
     if provider == PROVIDER_NONE:
@@ -86,14 +103,14 @@ def provider_ready(provider: str, api_key: str = "") -> tuple[bool, str]:
         except ImportError:
             return False, "Chua cai thu vien deep-translator. Chay: pip install deep-translator"
         return True, "Can ket noi Internet."
-    if provider == PROVIDER_CLAUDE:
-        try:
-            import anthropic  # noqa: F401
-        except ImportError:
-            return False, "Chua cai thu vien anthropic. Chay: pip install anthropic"
-        if not api_key:
-            return False, "Chua nhap khoa API Claude trong tab Cai dat chung."
-        return True, "Can ket noi Internet."
+    if is_ai_provider(provider):
+        settings = Settings.load()
+        if not settings.ai_endpoint.strip():
+            return False, "Chưa cấu hình Endpoint AI Gateway (mở nút AI Gateway)."
+        key = api_key.strip() or Settings.get_secret("ai_gateway_key")
+        if not key.strip():
+            return False, "Chưa nhập khóa API cho AI Gateway."
+        return True, "Sẵn sàng (AI Gateway)."
     return False, f"Khong ho tro nha cung cap: {provider}"
 
 
@@ -102,7 +119,9 @@ def translate_batch(
     request: TranslationRequest,
     *,
     api_key: str = "",
-    model: str = "claude-opus-5",
+    model: str = "sub",
+    endpoint: str = "",
+    thinking: str = "",
     on_log: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Dich mot lo cau, tra ve danh sach ban dich cung do dai voi dau vao."""
@@ -112,8 +131,15 @@ def translate_batch(
         return list(request.texts)
     if provider == PROVIDER_GOOGLE:
         out = _translate_google(request, on_log=on_log)
-    elif provider == PROVIDER_CLAUDE:
-        out = _translate_claude(request, api_key=api_key, model=model, on_log=on_log)
+    elif is_ai_provider(provider):
+        out = _translate_ai(
+            request,
+            api_key=api_key,
+            model=model,
+            endpoint=endpoint,
+            thinking=thinking,
+            on_log=on_log,
+        )
     else:
         raise TranslationError(f"Khong ho tro nha cung cap: {provider}")
     return [apply_glossary(t, request.glossary) for t in out]
@@ -155,118 +181,108 @@ def _translate_google(
     return results
 
 
-# --------------------------------------------------------------------------- Claude
-
-_SYSTEM_PROMPT = (
-    "Ban la bien dich vien phu de chuyen nghiep. Dich tung cau sang ngon ngu dich, "
-    "giu dung so luong cau va dung thu tu. Giu nguyen ten rieng, thuong hieu va con so. "
-    "Cau dich phai ngan gon de vua thoi luong hien thi tren man hinh. "
-    "Khong them giai thich, khong them dau ngoac, khong gop hay tach cau."
-)
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "translations": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "integer"},
-                    "text": {"type": "string"},
-                },
-                "required": ["id", "text"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["translations"],
-    "additionalProperties": False,
-}
+# --------------------------------------------------------------------------- AI Gateway
 
 
-def _translate_claude(
+def _translate_ai(
     request: TranslationRequest,
     *,
-    api_key: str,
-    model: str = "claude-opus-5",
+    api_key: str = "",
+    model: str = "sub",
+    endpoint: str = "",
+    thinking: str = "",
     on_log: Callable[[str], None] | None = None,
 ) -> list[str]:
-    try:
-        import anthropic
-    except ImportError as exc:
-        raise TranslationError("Chua cai thu vien anthropic. Chay: pip install anthropic") from exc
-    if not api_key:
-        raise TranslationError("Chua nhap khoa API Claude trong tab Cai dat chung.")
+    settings = Settings.load()
+    ep = endpoint.strip() or settings.ai_endpoint.strip()
+    if not ep:
+        raise TranslationError("Chưa cấu hình Endpoint AI Gateway.")
+    key = api_key.strip() or Settings.get_secret("ai_gateway_key")
+    if not key:
+        raise TranslationError("Chưa nhập khóa API AI Gateway.")
 
-    client = anthropic.Anthropic(api_key=api_key)
+    actual_model, default_thinking = ai_gateway.resolve_model(model or settings.llm_model, settings)
+    actual_thinking = thinking if thinking else default_thinking
+
     src_name = LANGUAGES.get(request.source, request.source or "tu nhan dang")
     dst_name = LANGUAGES.get(request.target, request.target)
     lines = [{"id": i, "text": t} for i, t in enumerate(request.texts)]
+
     glossary_note = ""
     if request.glossary:
         pairs = ", ".join(f"{k} = {v}" for k, v in list(request.glossary.items())[:50])
-        glossary_note = f"\nBang thuat ngu bat buoc giu nguyen hoac dich co dinh: {pairs}"
+        glossary_note = f"\nBảng thuật ngữ bắt buộc giữ nguyên hoặc dịch cố định: {pairs}"
+
     context_note = ""
     if request.context_before or request.context_after:
         context_note = (
-            f"\nNgu canh truoc: {request.context_before}\nNgu canh sau: {request.context_after}"
+            f"\nNgữ cảnh trước: {request.context_before}\nNgữ cảnh sau: {request.context_after}"
         )
+
+    system_prompt = (
+        "Bạn là biên dịch viên phụ đề chuyên nghiệp. Dịch chính xác từng câu sang ngôn ngữ đích.\n"
+        "Quy tắc bắt buộc:\n"
+        f"1. Số lượng câu dịch ra PHẢI ĐÚNG bằng số lượng câu đầu vào ({len(request.texts)} câu).\n"
+        "2. Giữ nguyên thứ tự 1:1 theo id từ 0 đến N-1.\n"
+        "3. Giữ nguyên tên riêng, thương hiệu và con số.\n"
+        "4. Không thêm giải thích, không gộp câu, không tách câu, không bỏ sót câu.\n"
+        "5. Trả về đúng định dạng JSON: {\"translations\": [{\"id\": 0, \"text\": \"...\"}, ...]}"
+    )
+    if request.extra_prompt.strip():
+        system_prompt += "\n\nYêu cầu riêng của người dùng:\n" + request.extra_prompt.strip()
+
     prompt = (
-        f"Dich cac cau phu de sau tu {src_name} sang {dst_name}."
+        f"Dịch các câu phụ đề sau từ {src_name} sang {dst_name}."
         f"{glossary_note}{context_note}\n\n"
-        f"Danh sach cau (JSON):\n{json.dumps(lines, ensure_ascii=False)}"
+        f"Danh sách câu (JSON):\n{json.dumps(lines, ensure_ascii=False)}"
     )
 
-    system_prompt = _SYSTEM_PROMPT
-    if request.extra_prompt.strip():
-        system_prompt += "\n\nYeu cau rieng cua nguoi dung:\n" + request.extra_prompt.strip()
-
     try:
-        response = client.messages.create(
-            model=model or "claude-opus-5",
-            max_tokens=16000,
-            system=system_prompt,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": _SCHEMA}},
-            messages=[{"role": "user", "content": prompt}],
+        raw_reply = ai_gateway.chat_completion(
+            ep,
+            key,
+            model=actual_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            thinking=actual_thinking,
+            response_format={"type": "json_object"},
         )
-    except anthropic.AuthenticationError as exc:
-        raise TranslationError("Khoa API Claude khong dung hoac da bi thu hoi.") from exc
-    except anthropic.RateLimitError as exc:
-        raise TranslationError(
-            "Dich vu Claude bao qua gioi han goi. Cho vai phut roi dich lai."
-        ) from exc
-    except anthropic.APIConnectionError as exc:
-        raise TranslationError("Khong ket noi duoc toi Claude. Kiem tra mang.") from exc
-    except anthropic.APIStatusError as exc:
-        raise TranslationError(f"Claude bao loi {exc.status_code}: {exc.message}") from exc
+    except ai_gateway.AIGatewayError as exc:
+        raise TranslationError(str(exc)) from exc
 
-    if response.stop_reason == "refusal":
-        raise TranslationError(
-            "Claude tu choi dich noi dung nay. Hay dung nha cung cap khac cho doan nay."
-        )
-
-    text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
     if on_log:
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            on_log(f"Claude: {usage.input_tokens} token vao, {usage.output_tokens} token ra")
-    return _parse_claude_json(text, len(request.texts))
+        on_log(f"AI Gateway ({actual_model}): đã dịch {len(request.texts)} câu.")
+
+    return _parse_ai_json(raw_reply, len(request.texts), strict=True)
 
 
-def _parse_claude_json(text: str, expected: int) -> list[str]:
-    """Doc ket qua JSON tra ve, chap nhan ca truong hop thieu hoac thua cau."""
+def _parse_ai_json(text: str, expected: int, *, strict: bool = True) -> list[str]:
+    """Doc ket qua JSON tra ve tu AI Gateway.
+
+    Neu strict=True: kiem tra bat buoc so cau tra ve dung bang expected,
+    neu lech thi bao loi translation count mismatch.
+    """
     cleaned = _TAG_RE.sub("", text or "").strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", cleaned).strip()
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise TranslationError("Ket qua tra ve tu Claude khong dung dinh dang JSON.") from exc
+        raise TranslationError("Kết quả trả về từ AI Gateway không đúng định dạng JSON.") from exc
+
     items = data.get("translations") if isinstance(data, dict) else None
     if not isinstance(items, list):
-        raise TranslationError("Ket qua tra ve tu Claude thieu truong 'translations'.")
+        raise TranslationError("Kết quả trả về từ AI Gateway thiếu trường 'translations'.")
+
+    if strict and len(items) != expected:
+        raise TranslationError(
+            f"Số lượng câu dịch ({len(items)}) không khớp với số lượng câu gốc ({expected})."
+        )
+
     out = [""] * expected
+    filled: set[int] = set()
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -276,7 +292,18 @@ def _parse_claude_json(text: str, expected: int) -> list[str]:
             continue
         if 0 <= idx < expected:
             out[idx] = str(item.get("text", "")).strip()
+            filled.add(idx)
+
+    if strict and len(filled) != expected:
+        raise TranslationError(
+            f"Số lượng câu dịch ({len(filled)}) không khớp với số lượng câu gốc ({expected})."
+        )
     return out
+
+
+def _parse_claude_json(text: str, expected: int) -> list[str]:
+    """Ham tuong thich cho cac bai kiem thu cu."""
+    return _parse_ai_json(text, expected, strict=False)
 
 
 def chunk(items: Sequence[str], size: int = 25) -> list[list[str]]:

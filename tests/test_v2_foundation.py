@@ -204,12 +204,11 @@ class TestUIChanges:
         assert not any("Intro & Outro" in t for t in button_texts)
         assert not any("Hiệu Ứng Video" in t for t in button_texts)
 
-        # AI Gateway button ton tai, disabled, tooltip se kha dung
+        # AI Gateway button ton tai, enabled
         assert hasattr(window.settings_panel, "btn_ai_gateway")
         ai_btn = window.settings_panel.btn_ai_gateway
         assert "AI Gateway" in ai_btn.text()
-        assert not ai_btn.isEnabled()
-        assert "khả dụng" in ai_btn.toolTip().lower()
+        assert ai_btn.isEnabled()
 
         window.close()
         qapp.processEvents()
@@ -222,9 +221,8 @@ class TestUIChanges:
     def test_settings_panel_ai_gateway_and_removed_placeholders(self, qapp):
         panel = SettingsPanel()
         assert hasattr(panel, "btn_ai_gateway")
-        assert not panel.btn_ai_gateway.isEnabled()
+        assert panel.btn_ai_gateway.isEnabled()
         assert "AI Gateway" in panel.btn_ai_gateway.text()
-        assert "khả dụng" in panel.btn_ai_gateway.toolTip().lower()
 
         buttons = [b.text() for b in panel.findChildren(QPushButton)]
         assert not any("Cấu Hình Xóa Thoại" in t for t in buttons)

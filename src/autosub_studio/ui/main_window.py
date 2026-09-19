@@ -51,7 +51,7 @@ from ..services.paths import bundled_dir, ensure_workspace, safe_name
 from ..services.settings import Settings
 from ..services.tasks import CANCELLED, DONE, PENDING, RUNNING, TaskContext, TaskManager
 from .cue_table import CueTableModel, CueTableView
-from .dialogs import IssueDialog, LogDialog, ShiftDialog
+from .dialogs import AIGatewayDialog, IssueDialog, LogDialog, ShiftDialog
 from .panels import (
     CapCutPanel,
     DubPanel,
@@ -778,6 +778,7 @@ class MainWindow(QMainWindow):
         self.render_panel.exportSubtitle.connect(self._export_subtitle)
 
         self.settings_panel.chooseWorkspace.connect(self._choose_workspace)
+        self.settings_panel.openAIGateway.connect(self._open_ai_gateway_dialog)
         self.settings_panel.chooseFfmpeg.connect(self._choose_ffmpeg)
         self.settings_panel.chooseModelDir.connect(self._choose_model_dir)
         self.settings_panel.chooseCapcut.connect(self._choose_capcut)
@@ -803,8 +804,14 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ cai dat
 
+    def _open_ai_gateway_dialog(self) -> None:
+        dialog = AIGatewayDialog(self.settings, self)
+        if dialog.exec():
+            self._load_settings_into_ui()
+            self._log("Đã lưu cấu hình AI Gateway.")
+
     def _load_settings_into_ui(self) -> None:
-        api_key = Settings.get_secret("claude_api_key")
+        api_key = Settings.get_secret("ai_gateway_key")
         self.subtitle_panel.load(self.settings)
         self.translate_panel.load(self.settings, api_key)
         self.dub_panel.load(self.settings)
@@ -837,7 +844,6 @@ class MainWindow(QMainWindow):
         self._collect_settings()
         self.settings.remember_active_profile()
         self.settings.save()
-        Settings.set_secret("claude_api_key", self.settings_panel.api_key.text().strip())
         self.ff = FFmpeg(self.settings.ffmpeg_path, self.settings.ffprobe_path)
         self.tasks.set_max_workers(self.settings.max_workers)
         self.player.set_subtitle_style(self.settings.style)
@@ -1285,7 +1291,7 @@ class MainWindow(QMainWindow):
                 store=store,
                 project=project,
                 task=ctx,
-                api_key=Settings.get_secret("claude_api_key"),
+                api_key=Settings.get_secret("ai_gateway_key"),
                 glossary={},
             )
             return P.run_script([P.STEP_OCR], pc)
@@ -2083,7 +2089,7 @@ class MainWindow(QMainWindow):
         settings = self.settings
         store = self.store
         ff = self.ff
-        api_key = Settings.get_secret("claude_api_key")
+        api_key = Settings.get_secret("ai_gateway_key")
         glossary = self.translate_panel.glossary_dict()
 
         def job(ctx: TaskContext) -> str:
@@ -2356,7 +2362,7 @@ class MainWindow(QMainWindow):
         cues = [self.cue_model.doc.cues[r] for r in rows]
         texts = [c.text for c in cues]
         provider = self.settings.translate_provider
-        api_key = Settings.get_secret("claude_api_key")
+        api_key = Settings.get_secret("ai_gateway_key")
         settings = self.settings
         glossary = self.translate_panel.glossary_dict()
         from ..providers import translate as tr

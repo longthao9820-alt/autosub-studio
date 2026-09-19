@@ -241,7 +241,7 @@ class SubtitlePanel(QWidget):
         self.ocr_contrast.setValue(0)
 
         self.ocr_mode = QComboBox()
-        self.ocr_mode.addItems(["Nhanh Như NTS", "Cân Bằng", "Chính Xác"])
+        self.ocr_mode.addItems(["Nhanh Như NTS", "Cân Bằng", "Chính Xác", "OCR AI"])
         self.ocr_mode.setCurrentText("Nhanh Như NTS")
         self.ocr_server = QComboBox()
         self.ocr_server.addItems(
@@ -249,8 +249,12 @@ class SubtitlePanel(QWidget):
                 "PP-OCRv4 Mobile (Nhanh Như NTS)",
                 "PP-OCRv6 Small (Nhanh)",
                 "PP-OCRv6 Medium (Chuẩn nhất)",
+                "Server AI API",
             ]
         )
+        self.ocr_ai_model = QComboBox()
+        self.ocr_ai_model.addItems(["sub", "prime"])
+        self.ocr_ai_model.setFixedWidth(70)
         self.ocr_language = QComboBox()
         self.ocr_language.addItems(["Simplified Chinese", "English", "Vietnamese", "Auto"])
         self.ocr_batch = QSpinBox()
@@ -294,6 +298,8 @@ class SubtitlePanel(QWidget):
                 self.ocr_max_height,
                 "Server:",
                 self.ocr_server,
+                "AI Model:",
+                self.ocr_ai_model,
                 "Ngôn Ngữ Sub:",
                 self.ocr_language,
                 "Batch Size:",
@@ -387,6 +393,10 @@ class SubtitlePanel(QWidget):
 
     def _apply_ocr_preset(self, name: str) -> None:
         """Bien ba che do tren giao dien thanh tham so OCR thuc su."""
+        if name == "OCR AI":
+            self.ocr_server.setCurrentText("Server AI API")
+            self.ocr_refine.setChecked(False)
+            return
         presets = {
             "Nhanh Như NTS": (
                 15.0,
@@ -671,6 +681,8 @@ class SubtitlePanel(QWidget):
         mode = "Nhanh Như NTS" if s.ocr_mode == "Nhanh" else s.ocr_mode
         self.ocr_mode.setCurrentText(mode)
         self.ocr_server.setCurrentText(s.ocr_server)
+        if hasattr(s, "ocr_ai_model") and s.ocr_ai_model:
+            self.ocr_ai_model.setCurrentText(s.ocr_ai_model)
         self.ocr_language.setCurrentText(s.ocr_language)
         self.ocr_batch.setValue(s.ocr_batch_size)
         self.ocr_count.setValue(s.ocr_consensus)
@@ -694,7 +706,11 @@ class SubtitlePanel(QWidget):
         self._show_color()
 
         self.btn_asr.setEnabled(asr.is_available())
-        self.btn_ocr.setEnabled(ocr.is_available())
+        self.btn_ocr.setEnabled(
+            ocr.is_available()
+            or self.ocr_mode.currentText() == "OCR AI"
+            or self.ocr_server.currentText() == "Server AI API"
+        )
         self.btn_measure.setEnabled(ocr.is_available() and ocr_filter.available())
         notes = []
         if not asr.is_available():
@@ -730,6 +746,8 @@ class SubtitlePanel(QWidget):
         s.use_gpu = self.device.currentIndex() != 1
         s.ocr_mode = self.ocr_mode.currentText()
         s.ocr_server = self.ocr_server.currentText()
+        if hasattr(s, "ocr_ai_model"):
+            s.ocr_ai_model = self.ocr_ai_model.currentText()
         s.ocr_language = self.ocr_language.currentText()
         s.ocr_batch_size = self.ocr_batch.value()
         s.ocr_consensus = self.ocr_count.value()
@@ -766,9 +784,8 @@ class TranslatePanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.provider = QComboBox()
-        self.provider.addItem("Dịch AI Vip Pro", translate.PROVIDER_GOOGLE)
+        self.provider.addItem("Server AI API", translate.PROVIDER_SERVER_AI)
         self.provider.addItem("Google Miễn Phí", translate.PROVIDER_GOOGLE)
-        self.provider.addItem("Claude AI", translate.PROVIDER_CLAUDE)
         self.provider.addItem("Không Dịch", translate.PROVIDER_NONE)
         self.provider.setFixedWidth(190)
         self.source = QComboBox()
@@ -784,14 +801,9 @@ class TranslatePanel(QWidget):
             if code != "auto":
                 self.target.addItem(shown, code)
         self.model = QComboBox()
-        for model in translate.CLAUDE_MODELS:
-            label = (
-                "Dịch Ngữ Cảnh - Omni Trans Lite - L1.1 (1 ký tự dịch = 1 token)"
-                if model == translate.CLAUDE_MODELS[0]
-                else model
-            )
-            self.model.addItem(label, model)
-        self.model.setMinimumWidth(360)
+        self.model.addItem("sub", "sub")
+        self.model.addItem("prime", "prime")
+        self.model.setMinimumWidth(160)
         self.batch = QSpinBox()
         self.batch.setRange(1, 100)
         self.batch.setValue(8)
@@ -900,6 +912,12 @@ class TranslatePanel(QWidget):
 
     def load(self, s: Settings, api_key: str = "") -> None:
         provider_index = self.provider.findData(s.translate_provider)
+        if provider_index < 0:
+            provider_index = self.provider.findText(s.translate_provider)
+        if provider_index < 0 and s.translate_provider in ("AI Gateway", "Server AI API"):
+            provider_index = self.provider.findData(translate.PROVIDER_SERVER_AI)
+            if provider_index < 0:
+                provider_index = self.provider.findText("Server AI API")
         self.provider.setCurrentIndex(provider_index if provider_index >= 0 else 0)
         i = self.source.findData(s.source_language)
         self.source.setCurrentIndex(i if i >= 0 else 0)
@@ -908,15 +926,16 @@ class TranslatePanel(QWidget):
         self.context.setValue(s.translate_context)
         self.batch.setValue(s.translate_batch)
         model_index = self.model.findData(s.llm_model)
+        if model_index < 0:
+            model_index = self.model.findText(s.llm_model)
         self.model.setCurrentIndex(model_index if model_index >= 0 else 0)
         self.prompt.setPlainText(s.translate_prompt)
-        self._api_key = api_key
         self.refresh_status()
 
     def refresh_status(self) -> None:
         ready, reason = translate.provider_ready(
             self.provider.currentData() or self.provider.currentText(),
-            getattr(self, "_api_key", ""),
+            Settings.get_secret("ai_gateway_key"),
         )
         self.btn_all.setEnabled(ready)
         self.btn_selected.setEnabled(ready)
@@ -928,7 +947,7 @@ class TranslatePanel(QWidget):
         s.target_language = self.target.currentData() or "vi"
         s.translate_context = self.context.value()
         s.translate_batch = self.batch.value()
-        s.llm_model = self.model.currentData() or self.model.currentText()
+        s.llm_model = self.model.currentData() or self.model.currentText() or "sub"
         s.translate_prompt = self.prompt.toPlainText().strip()
 
     def glossary_dict(self) -> dict[str, str]:
@@ -1580,6 +1599,7 @@ class CapCutPanel(QWidget):
 class SettingsPanel(QWidget):
     """Cau hinh chung cua ung dung."""
 
+    openAIGateway = Signal()
     chooseWorkspace = Signal()
     chooseFfmpeg = Signal()
     chooseModelDir = Signal()
@@ -1669,8 +1689,9 @@ class SettingsPanel(QWidget):
             grid.addWidget(widget, 0, col)
         self.btn_ai_gateway = QPushButton("AI Gateway  ⚙")
         self.btn_ai_gateway.setObjectName("Flat")
-        self.btn_ai_gateway.setEnabled(False)
-        self.btn_ai_gateway.setToolTip("Sẽ khả dụng trong bản cập nhật AI Gateway")
+        self.btn_ai_gateway.setEnabled(True)
+        self.btn_ai_gateway.setToolTip("Cấu hình kết nối AI Gateway")
+        self.btn_ai_gateway.clicked.connect(self.openAIGateway.emit)
         self.btn_export_settings = QPushButton("Cài Đặt Xuất Video  ⚙")
         self.btn_export_settings.setObjectName("Flat")
         grid.addWidget(self.btn_ai_gateway, 1, 0)
@@ -1690,9 +1711,6 @@ class SettingsPanel(QWidget):
         self.ffmpeg.setPlaceholderText("De trong de tu tim trong thu muc ung dung")
         self.model_dir = QLineEdit()
         self.model_dir.setPlaceholderText("De trong de dung model di kem")
-        self.api_key = QLineEdit()
-        self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key.setPlaceholderText("Khoa API Claude (luu ma hoa tren may)")
         self.workers = QSpinBox()
         self.workers.setRange(1, 8)
         self.workers.setFixedWidth(58)
@@ -1751,7 +1769,6 @@ class SettingsPanel(QWidget):
             self.workspace,
             self.ffmpeg,
             self.model_dir,
-            self.api_key,
             self.timeout,
             self.autosave,
             self.btn_workspace,
@@ -1851,7 +1868,6 @@ class SettingsPanel(QWidget):
             if s.hardware_signature
             else "Chưa kiểm tra cấu hình máy"
         )
-        self.api_key.setText(api_key)
         parts = [
             "Nhan dang giong noi: " + ("da cai" if asr.is_available() else "chua cai"),
             "Doc chu tren hinh: " + ("da cai" if ocr.is_available() else "chua cai"),
