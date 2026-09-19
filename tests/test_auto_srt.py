@@ -144,9 +144,14 @@ class TestAutoExport:
             Path(out).write_bytes(b"video co long tieng")
             return Path(out)
 
+        def fake_retime(_ff, _video, _spans, _work_dir, out_path, **_kwargs):
+            Path(out_path).write_bytes(b"retimed video")
+            return Path(out_path)
+
         monkeypatch.setattr(tts, "provider_ready", lambda _provider: (True, ""))
         monkeypatch.setattr(tts, "synthesize_cached", fake_synthesize)
         monkeypatch.setattr(media, "to_wav", fake_to_wav)
+        monkeypatch.setattr(media, "retime_video_segments", fake_retime)
         monkeypatch.setattr(media, "mix_voice_and_music", fake_mix)
         monkeypatch.setattr(media, "replace_audio", fake_replace)
 
@@ -154,7 +159,10 @@ class TestAutoExport:
 
         assert Path(pc.project.dub_path).is_file()
         assert Path(pc.project.dub_video_path).is_file()
-        assert mixed_with == [(video, 20)]
+        assert mixed_with[0][1] == 20 and mixed_with[0][0].name in (
+            "tap-01.mp4",
+            "timeline_video.mp4",
+        )
         assert "xuat video" in result
         again = pc.store.load(pc.project.folder)
         assert again.dub_video_path == pc.project.dub_video_path

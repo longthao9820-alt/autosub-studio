@@ -156,7 +156,7 @@ class ProjectData:
         item.dub_timing = [
             [float(value) for value in pair[:2]]
             for pair in (data.get("dub_timing") or [])
-            if isinstance(pair, list) and len(pair) >= 2
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2
         ]
         sub = data.get("subtitle")
         if isinstance(sub, dict):

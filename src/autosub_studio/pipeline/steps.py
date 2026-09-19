@@ -713,6 +713,7 @@ def step_dub(pc: PipelineContext) -> str:
     work = pc.project.sub_dir("temp") / "dub"
     work.mkdir(parents=True, exist_ok=True)
     voice_items: dict[int, tuple[Path, float]] = {}
+    global_speed = max(0.25, min(4.0, float(s.tts_speed_percent) / 100.0))
     over = 0
     short = 0
     made = 0
@@ -727,14 +728,7 @@ def step_dub(pc: PipelineContext) -> str:
         profile = _voice_profile_for_cue(s, cue)
         voice = str(profile.get("voice") or s.tts_voice)
         volume = int(str(profile.get("volume", s.tts_volume)))
-        speed = max(50, min(200, int(str(profile.get("speed", s.tts_speed_percent))))) / 100.0
         pitch = max(50, min(200, int(str(profile.get("pitch", s.tts_pitch_percent))))) / 100.0
-        provider_rate = (
-            int(round((speed - 1.0) * 100))
-            if s.tts_provider == tts.PROVIDER_VOICESTUDIO
-            else s.tts_rate
-        )
-        post_speed = 1.0 if s.tts_provider == tts.PROVIDER_VOICESTUDIO else speed
         raw = work / f"raw_{i:05d}"
         try:
             produced = tts.synthesize_cached(
@@ -742,8 +736,8 @@ def step_dub(pc: PipelineContext) -> str:
                 text.replace("\n", " "),
                 raw.with_suffix(".wav"),
                 voice=voice,
-                rate=provider_rate,
                 volume=volume,
+                speed=global_speed,
                 enabled=s.tts_cache_enabled,
                 on_log=None,
             )
@@ -756,9 +750,9 @@ def step_dub(pc: PipelineContext) -> str:
             pc.ff,
             produced,
             normalized,
-            tempo=post_speed,
+            tempo=1.0,
             pitch=pitch,
-            volume=volume / 100.0 if s.tts_provider == tts.PROVIDER_VOICESTUDIO else 1.0,
+            volume=max(0.0, min(2.0, volume / 100.0)),
             token=pc.token,
         )
         profile_bass = int(str(profile.get("bass", 0)))
@@ -788,38 +782,20 @@ def step_dub(pc: PipelineContext) -> str:
             padded = work / f"pause_{i:05d}.wav"
             media.append_silence(normalized, padded, pause_ms / 1000.0)
             normalized = padded
-        fitted = work / f"fit_{i:05d}.wav"
-        tempo = 1.0
         actual = media.wav_duration(normalized)
         next_start = cues[i + 1].start if i + 1 < len(cues) else cue.end
         slot_end = min(cue.end, next_start) if next_start > cue.start else cue.end
         target = max(0.1, slot_end - cue.start)
         if cue.duration * 1000 < max(0, s.tts_short_threshold_ms):
             short += 1
-        timeline_mode = s.dub_timing_mode == "voice" and s.dub_output_mode == "video"
-        must_fit = s.dub_timing_mode == "subtitle"
-        avoid_overlap = not timeline_mode and not s.tts_allow_overlap and actual > target
-        if actual > 0 and (must_fit or avoid_overlap):
-            tempo = actual / target
-            if tempo > 1.02:
-                if tempo > 2.5:
-                    over += 1
-                media.to_wav(
-                    pc.ff,
-                    normalized,
-                    fitted,
-                    tempo=min(tempo, 2.5),
-                    token=pc.token,
-                )
-            else:
-                shutil.copyfile(normalized, fitted)
-        else:
-            shutil.copyfile(normalized, fitted)
+        if actual > target:
+            over += 1
+        fitted = normalized
         if s.tts_store_voice:
             saved_dir = pc.project.sub_dir("audio") / "voice_segments"
             saved_dir.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(fitted, saved_dir / f"voice_{i + 1:05d}.wav")
-        voice_items[i] = (fitted, media.wav_duration(fitted))
+        voice_items[i] = (fitted, actual)
         made += 1
         pc.progress(int((i + 1) / len(cues) * 80))
 
@@ -844,7 +820,7 @@ def step_dub(pc: PipelineContext) -> str:
             abs((end - start) - target) > 0.02 for start, end, target in video_spans
         )
         if needs_retime:
-            pc.log("Canh timeline video theo do dai tung cau voice nhu NTS...")
+            pc.log("Canh timeline video theo do dai tung cau voice...")
             timeline_dir = work / "timeline"
             video_source = work / "timeline_video.mp4"
             media.retime_video_segments(
@@ -940,7 +916,7 @@ def step_dub(pc: PipelineContext) -> str:
         shutil.rmtree(work, ignore_errors=True)
     warnings = []
     if over:
-        warnings.append(f"{over} cau vuot khe time, da gioi han tang toc 2,5 lan")
+        warnings.append(f"{over} cau vuot khe time")
     if short:
         warnings.append(f"{short} cau ngan hon {s.tts_short_threshold_ms} ms")
     if failed:
@@ -972,38 +948,71 @@ def _voice_timeline(
     cues: list[Cue],
     voice_items: dict[int, tuple[Path, float]],
     source_total: float,
+    *,
+    gap_threshold: float = 0.5,
 ) -> tuple[
     list[tuple[float, float, float]],
     list[tuple[float, Path]],
     list[list[float]],
     float,
 ]:
-    """Lap timeline NTS: moi doan dai bang max(khe goc, voice)."""
+    """Lap timeline canh theo giong doc: target duration bang measured voice duration.
+
+    Moi doan video tuong ung voi mot cau doc se duoc retime bang dung do dai voice
+    thuc te (bao gom ca configured pause neu co), ke ca khi voice ngan hon doan goc.
+    Video giua cac cau doc (gap) neu lon hon gap_threshold se duoc giu nguyen thoi luong.
+    """
     video_spans: list[tuple[float, float, float]] = []
     voice_segments: list[tuple[float, Path]] = []
     timings: list[list[float]] = []
     output_cursor = 0.0
-    if cues and cues[0].start > 0.001:
+
+    if not cues:
+        if source_total > 0.001:
+            video_spans.append((0.0, source_total, source_total))
+            output_cursor = source_total
+        return video_spans, voice_segments, timings, output_cursor
+
+    if cues[0].start > 0.001:
         prefix = max(0.0, cues[0].start)
         video_spans.append((0.0, prefix, prefix))
         output_cursor = prefix
+        source_cursor = prefix
+    else:
+        source_cursor = 0.0
 
-    source_cursor = cues[0].start if cues else 0.0
     for index, cue in enumerate(cues):
+        if cue.start > source_cursor + 0.001:
+            gap = cue.start - source_cursor
+            video_spans.append((source_cursor, cue.start, gap))
+            output_cursor += gap
+            source_cursor = cue.start
+
         start = max(source_cursor, cue.start)
-        if index + 1 < len(cues) and cues[index + 1].start > start:
-            end = cues[index + 1].start
+        if index + 1 < len(cues):
+            next_start = cues[index + 1].start
+            gap_to_next = next_start - cue.end
+            if 0.0 <= gap_to_next <= gap_threshold and next_start > start:
+                end = next_start
+            else:
+                end = max(cue.end, start + 0.04)
         else:
             end = max(cue.end, start + 0.04)
+
         source_duration = max(0.04, end - start)
         voice = voice_items.get(index)
         voice_duration = voice[1] if voice is not None else 0.0
-        target_duration = max(source_duration, voice_duration)
+
+        if voice_duration > 0.001:
+            target_duration = max(0.04, voice_duration)
+        else:
+            target_duration = source_duration
+
         video_spans.append((start, end, target_duration))
         new_start = output_cursor
         new_end = output_cursor + target_duration
         timings.append([round(new_start, 6), round(new_end, 6)])
-        if voice is not None:
+        if voice is not None and voice_duration > 0.001:
             voice_segments.append((new_start, voice[0]))
         output_cursor = new_end
         source_cursor = end
@@ -1012,6 +1021,7 @@ def _voice_timeline(
         tail = source_total - source_cursor
         video_spans.append((source_cursor, source_total, tail))
         output_cursor += tail
+
     return video_spans, voice_segments, timings, output_cursor
 
 
