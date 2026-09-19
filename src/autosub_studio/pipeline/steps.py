@@ -8,13 +8,14 @@ import hashlib
 import json
 import os
 import shutil
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from ..core import editing, formats
-from ..core.models import Cue
+from ..core.models import Cue, SubtitleDoc
 from ..data.project import ProjectData, ProjectStore
 from ..providers import asr, diarize, ocr, ocr_ai, ocr_filter, separate, translate, tts
 from ..services import gpu, media
@@ -1030,21 +1031,27 @@ def build_ass(
     pc: PipelineContext,
     text_mode: str = "translation",
     timing: list[list[float]] | None = None,
+    style: SubtitleStyle | None = None,
+    visible: bool = True,
 ) -> Path:
     """Ghi tep ASS theo kieu chu dang chon, dung cho render va xem truoc."""
-    style: SubtitleStyle = pc.settings.style
+    if style is None:
+        style = pc.settings.style
     info = None
     try:
         info = pc.ff.probe(pc.require_video())
     except (FFmpegError, StepError):
         info = None
     out = pc.project.sub_dir("subtitles") / "render.ass"
-    document = pc.project.doc
-    if timing and len(timing) == len(document.cues):
-        document = copy.deepcopy(document)
-        for cue, pair in zip(document.cues, timing, strict=False):
-            if len(pair) >= 2 and pair[1] > pair[0]:
-                cue.start, cue.end = float(pair[0]), float(pair[1])
+    if not visible:
+        document = SubtitleDoc()
+    else:
+        document = pc.project.doc
+        if timing and len(timing) == len(document.cues):
+            document = copy.deepcopy(document)
+            for cue, pair in zip(document.cues, timing, strict=False):
+                if len(pair) >= 2 and pair[1] > pair[0]:
+                    cue.start, cue.end = float(pair[0]), float(pair[1])
     content = formats.write_ass(
         document,
         text_mode=text_mode,
@@ -1111,37 +1118,108 @@ def step_render(pc: PipelineContext) -> str:
     if uses_dubbed_video and dubbed_video is not None:
         video = dubbed_video
     pc.require_cues()
+
+    # Doc preset snapshot tu project neu co, fallback ve settings chung
+    snapshot = getattr(pc.project, "render_preset_snapshot", None) or {}
+    if isinstance(snapshot, dict) and snapshot.get("style"):
+        style = SubtitleStyle.from_dict(snapshot["style"])
+    else:
+        style = pc.settings.style
+
+    subtitle_visible = (
+        bool(snapshot["subtitle_visible"])
+        if isinstance(snapshot, dict) and "subtitle_visible" in snapshot
+        else True
+    )
+    crf = (
+        int(snapshot["render_crf"])
+        if isinstance(snapshot, dict) and "render_crf" in snapshot
+        else pc.settings.render_crf
+    )
+    preset = (
+        str(snapshot["render_preset"])
+        if isinstance(snapshot, dict) and "render_preset" in snapshot
+        else pc.settings.render_preset
+    )
+    lut = (
+        (snapshot.get("lut_path") if isinstance(snapshot, dict) else None)
+        or pc.project.lut_path
+        or None
+    )
+
     mode = "translation" if any(c.translation.strip() for c in pc.project.doc.cues) else "original"
     ass = build_ass(
         pc,
         text_mode=mode,
         timing=pc.project.dub_timing if uses_dubbed_video else None,
+        style=style,
+        visible=subtitle_visible,
     )
-    out = pc.project.sub_dir("exports") / f"{Path(pc.project.name).stem or 'video'}_sub.mp4"
+
+    exports_dir = pc.project.sub_dir("exports")
+    temp_dir = pc.project.sub_dir("temp")
+    stem = safe_name(Path(pc.project.name).stem or "video")
+    staging_file = temp_dir / f"render_{stem}_{uuid.uuid4().hex[:8]}.mp4"
     audio = (
         None
         if uses_dubbed_video
         else (Path(pc.project.dub_path) if pc.project.dub_path else None)
     )
+
     pc.log("Dang render video (buoc nay lau nhat)...")
-    media.burn_subtitles(
-        pc.ff,
-        video,
-        ass,
-        out,
-        audio_path=audio if (audio and audio.is_file()) else None,
-        blur_region=pc.project.blur_region or None,
-        lut_path=pc.project.lut_path or None,
-        crf=pc.settings.render_crf,
-        preset=pc.settings.render_preset,
-        gpu=pc.settings.use_gpu_encoder,
-        duration=pc.project.duration,
-        token=pc.token,
-        on_progress=pc.progress,
-    )
-    pc.project.render_path = str(out)
+    try:
+        media.burn_subtitles(
+            pc.ff,
+            video,
+            ass,
+            staging_file,
+            audio_path=audio if (audio and audio.is_file()) else None,
+            blur_region=pc.project.blur_region or None,
+            lut_path=lut,
+            crf=crf,
+            preset=preset,
+            gpu=pc.settings.use_gpu_encoder,
+            duration=pc.project.duration,
+            token=pc.token,
+            on_progress=pc.progress,
+        )
+        if not staging_file.is_file() or staging_file.stat().st_size == 0:
+            raise StepError(f"Render that bai, tep ket qua rong: {staging_file}")
+
+        project_out = exports_dir / f"{stem}_sub.mp4"
+        if project_out.exists():
+            with contextlib.suppress(OSError):
+                project_out.unlink()
+        shutil.move(str(staging_file), str(project_out))
+
+        output_folder = str(pc.settings.output_folder or "").strip()
+        if output_folder:
+            out_dir = Path(output_folder)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            final_target = unique_path(out_dir / f"{stem}_sub.mp4")
+            staging_copy = out_dir / f".{final_target.name}.tmp.{uuid.uuid4().hex[:8]}"
+            try:
+                shutil.copy2(str(project_out), str(staging_copy))
+                staging_copy.replace(final_target)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    staging_copy.unlink(missing_ok=True)
+                raise
+            published = final_target
+        else:
+            published = project_out
+
+    except Exception:
+        with contextlib.suppress(OSError):
+            if staging_file.is_file():
+                staging_file.unlink()
+        raise
+
+    pc.store.clean_temp(pc.project)
+    pc.project.render_path = str(published)
+    pc.project.output_video_path = str(published)
     pc.save()
-    return f"Da render xong: {out}"
+    return f"Da render xong: {published}"
 
 
 def step_export(pc: PipelineContext) -> str:

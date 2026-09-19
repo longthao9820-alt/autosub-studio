@@ -1435,6 +1435,7 @@ class RenderPanel(QWidget):
     markBlurRegion = Signal()
     chooseLut = Signal()
     exportSubtitle = Signal(str)
+    chooseOutputFolder = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1521,15 +1522,24 @@ class RenderPanel(QWidget):
         self.btn_ass = QPushButton("Xuat ASS")
         self.btn_vtt = QPushButton("Xuat VTT")
         self.btn_export = QPushButton("Xuat Goi Du An")
+        self.btn_output_folder = QPushButton("Thư Mục Xuất...")
+        self.btn_output_folder.setToolTip("Chọn thư mục lưu video render thành công")
         self.btn_srt.clicked.connect(lambda: self.exportSubtitle.emit(".srt"))
         self.btn_ass.clicked.connect(lambda: self.exportSubtitle.emit(".ass"))
         self.btn_vtt.clicked.connect(lambda: self.exportSubtitle.emit(".vtt"))
         self.btn_export.clicked.connect(self.runExport)
+        self.btn_output_folder.clicked.connect(self.chooseOutputFolder.emit)
 
         inner = QVBoxLayout(box)
         inner.setContentsMargins(8, 14, 8, 8)
         inner.setSpacing(8)
-        for button in (self.btn_srt, self.btn_ass, self.btn_vtt, self.btn_export):
+        for button in (
+            self.btn_srt,
+            self.btn_ass,
+            self.btn_vtt,
+            self.btn_export,
+            self.btn_output_folder,
+        ):
             inner.addWidget(button)
         inner.addStretch(1)
         return box
@@ -1580,6 +1590,7 @@ class SettingsPanel(QWidget):
     importProject = Signal()
     exportProject = Signal()
     exportContent = Signal()
+    chooseOutputFolder = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1627,6 +1638,8 @@ class SettingsPanel(QWidget):
         self.btn_ai_gateway.clicked.connect(self.openAIGateway.emit)
         self.btn_export_settings = QPushButton("Cài Đặt Xuất Video  ⚙")
         self.btn_export_settings.setObjectName("Flat")
+        self.btn_export_settings.setToolTip("Chọn thư mục lưu video render thành công")
+        self.btn_export_settings.clicked.connect(self.chooseOutputFolder.emit)
         grid.addWidget(self.btn_ai_gateway, 1, 0)
         grid.addWidget(self.btn_export_settings, 1, 1)
         grid.setColumnStretch(5, 1)

@@ -47,6 +47,7 @@ class ProjectData:
     lut_path: str = ""
     render_preset: str = ""
     output_video_path: str = ""
+    render_preset_snapshot: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
     updated_at: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
@@ -85,6 +86,7 @@ class ProjectData:
             "lut_path": self.lut_path,
             "render_preset": self.render_preset,
             "output_video_path": self.output_video_path,
+            "render_preset_snapshot": dict(self.render_preset_snapshot),
             "notes": self.notes,
             "updated_at": datetime.now().isoformat(timespec="seconds"),
             "subtitle": self.doc.to_dict(),
@@ -122,6 +124,7 @@ class ProjectData:
             "lut_path",
             "render_preset",
             "output_video_path",
+            "render_preset_snapshot",
             "notes",
             "updated_at",
             "subtitle",
@@ -147,6 +150,7 @@ class ProjectData:
             lut_path=str(data.get("lut_path", "")),
             render_preset=str(data.get("render_preset", "")),
             output_video_path=str(data.get("output_video_path", "")),
+            render_preset_snapshot=dict(data.get("render_preset_snapshot") or {}),
             notes=str(data.get("notes", "")),
             updated_at=str(data.get("updated_at", "")),
             extra=extra,
@@ -247,6 +251,13 @@ class ProjectStore:
                 self.relocate_project_path(
                     str(getattr(data, field_name) or ""), old_folder, current_folder
                 ),
+            )
+        if (
+            isinstance(data.render_preset_snapshot, dict)
+            and data.render_preset_snapshot.get("lut_path")
+        ):
+            data.render_preset_snapshot["lut_path"] = self.relocate_project_path(
+                str(data.render_preset_snapshot["lut_path"]), old_folder, current_folder
             )
         data.folder = str(current_folder)
         for sub in SUBDIRS:

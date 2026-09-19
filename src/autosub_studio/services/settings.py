@@ -218,6 +218,8 @@ class Settings:
             "ai_model_prime",
             "ai_thinking_prime",
             "ocr_ai_model",
+            "default_preset",
+            "download_folder",
         }
         return {key: value for key, value in asdict(self).items() if key not in excluded}
 
@@ -446,6 +448,8 @@ class Settings:
             settings.hardware_signature = ""
             settings.use_gpu = False
             settings.use_gpu_encoder = False
+        settings.default_preset = str(settings.default_preset or "").strip() or "DEFAULT"
+        settings.output_folder = str(settings.output_folder or "").strip()
         settings.schema_version = SCHEMA_VERSION
         if not settings.config_profiles:
             settings.config_profiles = {"default": settings.profile_snapshot()}

@@ -56,7 +56,8 @@ from ..providers.local_voice import (
 from ..services import gpu
 from ..services.ffmpeg import CancelToken, FFmpeg, FFmpegError
 from ..services.paths import bundled_dir, ensure_workspace, safe_name
-from ..services.settings import Settings
+from ..services.presets import PresetManager
+from ..services.settings import Settings, SubtitleStyle
 from ..services.tasks import CANCELLED, DONE, PENDING, RUNNING, TaskContext, TaskManager
 from .cue_table import CueTableModel, CueTableView
 from .dialogs import (
@@ -125,6 +126,7 @@ class MainWindow(QMainWindow):
         self.db.ensure_default_scripts()
         interrupted_projects = self.db.recover_interrupted_projects()
         self.store = ProjectStore(self.settings.workspace)
+        self.preset_manager = PresetManager()
         stale_ocr_freed = self.store.clean_stale_ocr_temp()
         self.ff = FFmpeg(self.settings.ffmpeg_path, self.settings.ffprobe_path)
         self.tasks = TaskManager(self.settings.max_workers, self)
@@ -198,20 +200,29 @@ class MainWindow(QMainWindow):
         preset_row.setSpacing(7)
         preset_row.addWidget(field_label("Chọn Preset"))
         self.render_preset_combo = QComboBox()
-        self.render_preset_combo.addItems(["REVIEW ENG", "REVIEW VI", "DEFAULT"])
         self.render_preset_combo.setFixedWidth(185)
         self.render_preset_name = QLineEdit()
+        self.render_preset_name.setPlaceholderText("Tên preset mới")
         self.render_preset_name.setFixedWidth(145)
         preset_row.addWidget(self.render_preset_combo)
         preset_row.addWidget(self.render_preset_name)
-        link = QPushButton("🔗")
-        link.setObjectName("Flat")
-        link.setFixedWidth(32)
-        preset_row.addWidget(link)
-        for text in ("Tạo Mới", "Áp Dụng", "Cập Nhật", "Xóa"):
-            button = QPushButton(text)
-            button.setFixedWidth(74)
-            preset_row.addWidget(button)
+        self.btn_preset_default = QPushButton("🔗")
+        self.btn_preset_default.setObjectName("Flat")
+        self.btn_preset_default.setFixedWidth(32)
+        self.btn_preset_default.setToolTip("Đặt preset này làm mặc định cho các project mới")
+        preset_row.addWidget(self.btn_preset_default)
+        self.btn_preset_create = QPushButton("Tạo Mới")
+        self.btn_preset_create.setFixedWidth(74)
+        self.btn_preset_apply = QPushButton("Áp Dụng")
+        self.btn_preset_apply.setFixedWidth(74)
+        self.btn_preset_update = QPushButton("Cập Nhật")
+        self.btn_preset_update.setFixedWidth(74)
+        self.btn_preset_delete = QPushButton("Xóa")
+        self.btn_preset_delete.setFixedWidth(74)
+        preset_row.addWidget(self.btn_preset_create)
+        preset_row.addWidget(self.btn_preset_apply)
+        preset_row.addWidget(self.btn_preset_update)
+        preset_row.addWidget(self.btn_preset_delete)
         preset_row.addStretch(1)
 
         self.render_tools = QFrame()
@@ -747,6 +758,11 @@ class MainWindow(QMainWindow):
             lambda: self._move_render_subtitle(-20)
         )
         self.btn_render_reset.clicked.connect(self._reset_render_preview)
+        self.btn_preset_default.clicked.connect(self._set_default_render_preset)
+        self.btn_preset_create.clicked.connect(self._create_render_preset)
+        self.btn_preset_apply.clicked.connect(self._apply_render_preset)
+        self.btn_preset_update.clicked.connect(self._update_render_preset)
+        self.btn_preset_delete.clicked.connect(self._delete_render_preset)
 
         self.script_panel.runRequested.connect(self._run_script)
         self.script_panel.scriptSaved.connect(self._save_script)
@@ -778,6 +794,7 @@ class MainWindow(QMainWindow):
         self.render_panel.markBlurRegion.connect(lambda: self._reset_region(MODE_BLUR))
         self.render_panel.chooseLut.connect(self._choose_lut)
         self.render_panel.exportSubtitle.connect(self._export_subtitle)
+        self.render_panel.chooseOutputFolder.connect(self._choose_output_folder)
 
         self.settings_panel.chooseWorkspace.connect(self._choose_workspace)
         self.settings_panel.openAIGateway.connect(self._open_ai_gateway_dialog)
@@ -793,6 +810,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.exportProject.connect(lambda: self._run_step(P.STEP_EXPORT))
         self.settings_panel.exportContent.connect(lambda: self._export_subtitle(".srt"))
         self.settings_panel.edit_volume.valueChanged.connect(self.player.volume.setValue)
+        self.settings_panel.chooseOutputFolder.connect(self._choose_output_folder)
 
         self.tasks.task_started.connect(self._on_task_started)
         self.tasks.task_progress.connect(self._on_task_progress)
@@ -825,6 +843,7 @@ class MainWindow(QMainWindow):
         self.batch_workers.blockSignals(False)
         self.player.set_subtitle_style(self.settings.style)
         self.player.volume.setValue(max(0, min(100, self.settings.edit_volume)))
+        self._refresh_preset_combo()
 
     def _set_batch_worker_limit(self, count: int) -> None:
         """Ap dung ngay gioi han project OCR chay dong thoi va luu cho lan sau."""
@@ -1124,6 +1143,12 @@ class MainWindow(QMainWindow):
         data.height = info.height
         data.doc.language = self.settings.ocr_language
         data.doc.target_language = self.settings.target_language
+        default_preset_name = self.settings.default_preset or "DEFAULT"
+        preset = self.preset_manager.get(default_preset_name)
+        data.render_preset = preset.name
+        data.render_preset_snapshot = preset.to_dict()
+        if preset.lut_path and not data.lut_path:
+            data.lut_path = preset.lut_path
         data.ocr_region = self._scaled_batch_region(
             region_template or [], template_size, info.width, info.height
         )
@@ -1394,6 +1419,31 @@ class MainWindow(QMainWindow):
         self.render_panel.lut_label.setText(
             Path(data.lut_path).name if data.lut_path else "Chua chon LUT"
         )
+        if data.render_preset:
+            self.render_preset_combo.blockSignals(True)
+            self.render_preset_combo.setCurrentText(data.render_preset)
+            self.render_preset_combo.blockSignals(False)
+        snap = data.render_preset_snapshot
+        if snap:
+            if "style" in snap and isinstance(snap["style"], dict):
+                self.settings.style = SubtitleStyle.from_dict(snap["style"])
+                self.render_panel.load(self.settings)
+            if "subtitle_visible" in snap:
+                self._render_subtitles_visible = bool(snap["subtitle_visible"])
+                if "subtitles" in self.render_tool_buttons:
+                    self.render_tool_buttons["subtitles"].setChecked(self._render_subtitles_visible)
+            if "render_crf" in snap:
+                self.settings.render_crf = int(snap["render_crf"])
+                self.render_panel.crf.setValue(self.settings.render_crf)
+            if "render_preset" in snap:
+                self.settings.render_preset = str(snap["render_preset"])
+                self.render_panel.preset.setCurrentText(self.settings.render_preset)
+            if "render_scale" in snap:
+                self.settings.render_scale = str(snap["render_scale"])
+            if "render_fps" in snap:
+                self.settings.render_fps = str(snap["render_fps"])
+            self.player.set_subtitle_style(self.settings.style)
+            self._on_position(self.player.position)
         self._dirty = False
         self.status_project.setText(f"Du an: {data.name}  |  {data.folder}")
         self._update_counts()
@@ -2519,6 +2569,181 @@ class MainWindow(QMainWindow):
     def _reset_render_preview(self) -> None:
         self.player.fit_view()
         self._set_render_subtitle_margin(60)
+
+    def _refresh_preset_combo(self, select_name: str = "") -> None:
+        current = (
+            select_name
+            or self.render_preset_combo.currentText()
+            or self.settings.default_preset
+            or "DEFAULT"
+        )
+        names = self.preset_manager.list_names()
+        self.render_preset_combo.blockSignals(True)
+        self.render_preset_combo.clear()
+        self.render_preset_combo.addItems(names)
+        if current in names:
+            self.render_preset_combo.setCurrentText(current)
+        elif "DEFAULT" in names:
+            self.render_preset_combo.setCurrentText("DEFAULT")
+        self.render_preset_combo.blockSignals(False)
+
+    def _set_default_render_preset(self) -> None:
+        name = self.render_preset_combo.currentText().strip()
+        if not name:
+            return
+        self.settings.default_preset = name
+        self.settings.save()
+        self.statusBar().showMessage(
+            f"Đã đặt '{name}' làm mặc định cho các project mới.", 5000
+        )
+
+    def _create_render_preset(self) -> None:
+        name = self.render_preset_name.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Tên Preset", "Vui lòng nhập tên preset mới.")
+            return
+        self.render_panel.apply(self.settings)
+        style = copy.deepcopy(self.settings.style)
+        subtitle_visible = self._render_subtitles_visible
+        render_scale = self.settings.render_scale
+        render_fps = self.settings.render_fps
+        render_crf = self.settings.render_crf
+        render_preset = self.settings.render_preset
+        lut_path = self.project.lut_path if self.project else ""
+        try:
+            created = self.preset_manager.create(
+                name,
+                style=style,
+                subtitle_visible=subtitle_visible,
+                render_scale=render_scale,
+                render_fps=render_fps,
+                render_crf=render_crf,
+                render_preset=render_preset,
+                lut_path=lut_path,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Không Tạo Được Preset", str(exc))
+            return
+        self._refresh_preset_combo(select_name=created.name)
+        self.render_preset_name.setText("")
+        self.statusBar().showMessage(f"Đã tạo preset mới: {created.name}", 5000)
+
+    def _apply_render_preset(self) -> None:
+        name = self.render_preset_combo.currentText().strip()
+        if not name:
+            return
+        preset = self.preset_manager.get(name)
+        if self.project is not None:
+            self.project.render_preset = preset.name
+            self.project.render_preset_snapshot = preset.to_dict()
+            if preset.lut_path:
+                self.project.lut_path = preset.lut_path
+            self.store.save(self.project)
+
+        self.settings.style = copy.deepcopy(preset.style)
+        self.render_panel.load(self.settings)
+        self._render_subtitles_visible = preset.subtitle_visible
+        if "subtitles" in self.render_tool_buttons:
+            self.render_tool_buttons["subtitles"].setChecked(preset.subtitle_visible)
+        self.settings.render_scale = preset.render_scale
+        self.settings.render_fps = preset.render_fps
+        self.settings.render_crf = preset.render_crf
+        self.settings.render_preset = preset.render_preset
+        self.render_panel.preset.setCurrentText(preset.render_preset)
+        self.render_panel.crf.setValue(preset.render_crf)
+        self._save_render_preview_style()
+        self.statusBar().showMessage(
+            f"Đã áp dụng preset '{preset.name}' cho dự án hiện tại.", 5000
+        )
+
+    def _update_render_preset(self) -> None:
+        name = self.render_preset_combo.currentText().strip()
+        if not name:
+            return
+        preset = self.preset_manager.get(name)
+        if preset.builtin:
+            QMessageBox.information(
+                self,
+                "Preset Mặc Định",
+                "Không thể ghi đè preset mặc định của hệ thống. "
+                "Hãy nhập tên mới vào ô bên cạnh rồi bấm 'Tạo Mới'.",
+            )
+            return
+        self.render_panel.apply(self.settings)
+        style = copy.deepcopy(self.settings.style)
+        subtitle_visible = self._render_subtitles_visible
+        render_scale = self.settings.render_scale
+        render_fps = self.settings.render_fps
+        render_crf = self.settings.render_crf
+        render_preset = self.settings.render_preset
+        lut_path = self.project.lut_path if self.project else ""
+        try:
+            updated = self.preset_manager.update(
+                name,
+                style=style,
+                subtitle_visible=subtitle_visible,
+                render_scale=render_scale,
+                render_fps=render_fps,
+                render_crf=render_crf,
+                render_preset=render_preset,
+                lut_path=lut_path,
+            )
+        except (ValueError, KeyError) as exc:
+            QMessageBox.warning(self, "Không Cập Nhật Được Preset", str(exc))
+            return
+        if self.project is not None and self.project.render_preset == name:
+            self.project.render_preset_snapshot = updated.to_dict()
+            self.store.save(self.project)
+        self.statusBar().showMessage(f"Đã cập nhật preset: {name}", 5000)
+
+    def _delete_render_preset(self) -> None:
+        name = self.render_preset_combo.currentText().strip()
+        if not name:
+            return
+        preset = self.preset_manager.get(name)
+        if preset.builtin:
+            QMessageBox.information(
+                self, "Không Thể Xóa", "Không thể xóa preset mặc định của hệ thống."
+            )
+            return
+        if len(self.preset_manager.list_presets()) <= 1:
+            QMessageBox.information(
+                self, "Không Thể Xóa", "Không thể xóa preset cuối cùng."
+            )
+            return
+        ans = QMessageBox.question(
+            self,
+            "Xóa Preset",
+            f"Bạn có chắc muốn xóa preset '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.preset_manager.delete(name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Không Thể Xóa", str(exc))
+            return
+        if self.settings.default_preset == name:
+            self.settings.default_preset = "DEFAULT"
+            self.settings.save()
+        self._refresh_preset_combo(select_name="DEFAULT")
+        self.statusBar().showMessage(f"Đã xóa preset: {name}", 5000)
+
+    def _choose_output_folder(self) -> None:
+        default_folder = self.settings.output_folder or str(Path.home() / "Videos")
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Thư mục lưu video render thành công",
+            default_folder,
+        )
+        if folder:
+            self.settings.output_folder = folder
+            self.settings.save()
+            self.statusBar().showMessage(
+                f"Đã chọn thư mục xuất video: {folder}", 5000
+            )
 
     def _cue_menu(self, point) -> None:
         """Menu chuot phai tren bang phu de."""
