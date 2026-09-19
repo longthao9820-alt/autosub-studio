@@ -43,6 +43,14 @@ if ($cudaCount -eq 0) {
     Write-Host "Se nhung: $cudaCount tep thu vien CUDA (tang toc GPU)"
 }
 
+$piperExe = Join-Path $assets "piper\piper.exe"
+$piperEspeak = Join-Path $assets "piper\espeak-ng-data"
+if (-not (Test-Path $piperExe) -or -not (Test-Path $piperEspeak)) {
+    Write-Warning "Khong co hoac thieu assets\piper (can piper.exe va espeak-ng-data): ban dong goi se khong co giong doc offline Piper. Tai Piper release tu https://github.com/rhasspy/piper/releases."
+} else {
+    Write-Host "Se nhung: Piper Local TTS (piper.exe + espeak-ng-data)"
+}
+
 if ($missing.Count -gt 0) {
     Write-Warning "Thieu cac thanh phan sau, ban dong goi se KHONG chay doc lap duoc:"
     $missing | ForEach-Object { Write-Warning "  - $_" }
@@ -132,6 +140,7 @@ $checks = @{
     "OCR Nhanh Nhu NTS" = Join-Path $out "_internal\ocr\ch_PP-OCRv4_rec_infer.onnx"
     "thu vien CUDA" = Join-Path $out "_internal\cuda\cudnn64_9.dll"
     "yt-dlp" = Join-Path $out "_internal\download\yt-dlp.exe"
+    "Piper TTS"   = Join-Path $out "_internal\piper\piper.exe"
     "thu vien LUT" = Join-Path $out "_internal\lut"
     "thu vien font" = Join-Path $out "_internal\fonts"
 }

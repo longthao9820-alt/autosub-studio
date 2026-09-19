@@ -26,7 +26,7 @@ hidden = [
 datas = []
 
 # Cac goi tuy chon: chi thu thap khi moi truong dong goi da cai san.
-for optional in ("faster_whisper", "edge_tts", "deep_translator", "anthropic",
+for optional in ("faster_whisper", "deep_translator", "anthropic",
                  "rapidocr"):
     try:
         __import__(optional)
@@ -41,6 +41,15 @@ ffmpeg_dir = ASSETS / "ffmpeg"
 if ffmpeg_dir.is_dir():
     for exe in sorted(ffmpeg_dir.glob("*.exe")):
         binaries.append((str(exe), "ffmpeg"))
+
+piper_dir = ASSETS / "piper"
+if piper_dir.is_dir():
+    espeak_dir = piper_dir / "espeak-ng-data"
+    if espeak_dir.is_dir():
+        datas.append((str(espeak_dir), "piper/espeak-ng-data"))
+    for item in sorted(piper_dir.iterdir()):
+        if item.is_file():
+            binaries.append((str(item), "piper"))
 
 cuda_dir = ASSETS / "cuda"
 if cuda_dir.is_dir():

@@ -19,7 +19,6 @@ dependencies = [
 [project.optional-dependencies]
 speech = ["faster-whisper>=1.0"]
 translate = ["deep-translator>=1.11"]
-tts = ["edge-tts>=6.1"]
 ocr = ["rapidocr>=3.9.2", "onnxruntime>=1.22"]
 dev = ["pytest>=8.0", "pytest-qt>=4.4", "ruff>=0.6", "mypy>=1.11", "pyinstaller>=6.10"]
 

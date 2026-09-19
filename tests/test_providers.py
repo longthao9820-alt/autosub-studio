@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -236,77 +235,24 @@ class TestDiarize:
 
 
 class TestTts:
-    def test_provider_list_not_empty(self):
-        assert tts.available_providers()
-        assert tts.PROVIDER_VOICESTUDIO in tts.available_providers()
+    def test_provider_list_contains_only_local_voice(self):
+        assert tts.available_providers() == [tts.PROVIDER_LOCAL]
+        assert tts.PROVIDER_LOCAL == "Local Voice"
 
-    def test_voicestudio_voice_list_is_english_only(self, monkeypatch):
-        monkeypatch.setattr(
-            tts,
-            "_json_request",
-            lambda *_args, **_kwargs: {
-                "voices": [
-                    {
-                        "voice_id": "english-profile",
-                        "name": "English Voice",
-                        "type": "profile",
-                        "language": "English",
-                    },
-                    {
-                        "voice_id": "vietnamese-profile",
-                        "name": "Vietnamese Voice",
-                        "type": "profile",
-                        "language": "Vietnamese",
-                    },
-                ]
-            },
-        )
+    def test_provider_ready_checks_piper_runtime(self, monkeypatch):
+        monkeypatch.setattr(tts, "piper_runtime_ready", lambda: (True, "Ready"))
+        ready, reason = tts.provider_ready(tts.PROVIDER_LOCAL)
+        assert ready is True
+        assert reason == "Ready"
 
-        voices = tts._voicestudio_voices()
+    def test_list_voices_from_local_catalog(self):
+        voices = tts.list_voices(tts.PROVIDER_LOCAL)
+        assert "en_US-bryce-medium" in voices
+        assert "vi_VN-vais1000-medium" in voices
 
-        assert any("kittentts" in voice for voice in voices)
-        assert any("english-profile" in voice for voice in voices)
-        assert not any("vietnamese-profile" in voice for voice in voices)
-
-    def test_voicestudio_sends_openai_compatible_english_request(self, tmp_path, monkeypatch):
-        seen = {}
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return b"R" * 100
-
-        def urlopen(request, timeout):
-            seen["url"] = request.full_url
-            seen["body"] = json.loads(request.data)
-            seen["timeout"] = timeout
-            return Response()
-
-        monkeypatch.setattr(tts, "voicestudio_ready", lambda: (True, "ready"))
-        monkeypatch.setattr(tts.urllib.request, "urlopen", urlopen)
-
-        out = tts._voicestudio_speak(
-            "American English test",
-            tmp_path / "voice.wav",
-            voice="Male|kittentts|expr-voice-2-m",
-            rate=15,
-        )
-
-        assert out.read_bytes() == b"R" * 100
-        assert seen["url"].endswith("/v1/audio/speech")
-        assert seen["body"] == {
-            "model": "kittentts",
-            "input": "American English test",
-            "voice": "expr-voice-2-m",
-            "response_format": "wav",
-            "speed": 1.15,
-            "language": "en",
-        }
+        vi_voices = tts.list_voices(tts.PROVIDER_LOCAL, language="vi-VN")
+        assert "vi_VN-vais1000-medium" in vi_voices
+        assert "en_US-bryce-medium" not in vi_voices
 
     def test_unknown_provider_rejected(self):
         ready, reason = tts.provider_ready("khong co")
@@ -314,7 +260,7 @@ class TestTts:
 
     def test_empty_text_rejected(self, tmp_path):
         with pytest.raises(tts.TTSError):
-            tts.synthesize(tts.PROVIDER_SAPI, "   ", tmp_path / "a.wav")
+            tts.synthesize(tts.PROVIDER_LOCAL, "   ", tmp_path / "a.wav")
 
     def test_dictionary_and_punctuation_are_applied_before_speech(self):
         text = tts.apply_dictionary("OpenAI, xin chao。", "OpenAI=ô-pần ây-ai")
@@ -323,8 +269,8 @@ class TestTts:
 
     def test_voice_cache_round_trip(self, tmp_path):
         target = tmp_path / "voices.json"
-        tts.save_voice_cache(target, {"edge": ["vi-VN-A"]})
-        assert tts.load_voice_cache(target) == {"edge": ["vi-VN-A"]}
+        tts.save_voice_cache(target, {"piper": ["en_US-bryce-medium"]})
+        assert tts.load_voice_cache(target) == {"piper": ["en_US-bryce-medium"]}
 
     def test_voice_cache_missing_file(self, tmp_path):
         assert tts.load_voice_cache(tmp_path / "khong-co.json") == {}
@@ -334,52 +280,25 @@ class TestTts:
 
         def fake_synthesize(_provider, _text, out_path, **_kwargs):
             calls.append(1)
-            out = Path(out_path).with_suffix(".mp3")
+            out = Path(out_path).with_suffix(".wav")
             out.write_bytes(b"voice" * 20)
             return out
 
         monkeypatch.setattr(tts, "synthesize", fake_synthesize)
         kwargs = {
-            "voice": "vi-VN-NamMinhNeural",
+            "voice": "en_US-bryce-medium",
             "cache_dir": tmp_path / "cache",
         }
-        first = tts.synthesize_cached(
-            tts.PROVIDER_EDGE, "Xin chao", tmp_path / "a.wav", **kwargs
-        )
-        second = tts.synthesize_cached(
-            tts.PROVIDER_EDGE, "Xin chao", tmp_path / "b.wav", **kwargs
-        )
+        first = tts.synthesize_cached(tts.PROVIDER_LOCAL, "Xin chao", tmp_path / "a.wav", **kwargs)
+        second = tts.synthesize_cached(tts.PROVIDER_LOCAL, "Xin chao", tmp_path / "b.wav", **kwargs)
 
         assert first == second
         assert first.is_file()
+        assert first.suffix == ".wav"
         assert len(calls) == 1
 
-    def test_edge_tts_retries_a_transient_empty_response(self, tmp_path, monkeypatch):
-        class FakeCommunicate:
-            calls = 0
-
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            async def save(self, path):
-                FakeCommunicate.calls += 1
-                if FakeCommunicate.calls == 1:
-                    raise RuntimeError("No audio was received")
-                Path(path).write_bytes(b"x" * 100)
-
-        monkeypatch.setitem(sys.modules, "edge_tts", SimpleNamespace(Communicate=FakeCommunicate))
-        logs = []
-
-        out = tts._edge_speak(
-            "xin chao",
-            tmp_path / "voice.wav",
-            voice="vi-VN-NamMinhNeural",
-            rate=0,
-            volume=100,
-            on_log=logs.append,
-        )
-
-        assert out.is_file()
-        assert FakeCommunicate.calls == 2
-        assert logs[0] == "Edge TTS thu lai cau doc (2/3)..."
-        assert logs[-1] == "Edge TTS: vi-VN-NamMinhNeural"
+    def test_deprecated_constants_safely_accessible_via_getattr(self):
+        available = tts.available_providers()
+        assert tts.PROVIDER_VOICESTUDIO not in available
+        assert tts.PROVIDER_EDGE not in available
+        assert tts.PROVIDER_SAPI not in available

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 import unicodedata
 from functools import lru_cache
@@ -138,8 +139,60 @@ def human_size(num_bytes: float) -> str:
 def free_space(path: str | Path) -> int:
     """So byte trong con lai tren o dia chua `path`."""
     try:
-        import shutil
-
         return shutil.disk_usage(str(Path(path).anchor or Path(path))).free
     except OSError:
         return 0
+
+
+def piper_models_dir() -> Path:
+    """Thu muc luu tru model Piper doc lap voi workspace/du an/cap nhat."""
+    env = os.environ.get("AUTOSUB_PIPER_MODELS_DIR")
+    if env:
+        target = Path(env)
+    elif is_portable():
+        target = portable_data_dir() / "models" / "piper"
+    else:
+        target = app_root() / "Data" / "models" / "piper"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def piper_bin_path() -> Path | None:
+    """Duong dan toi piper.exe neu co (uu tien bundled, sau do assets/piper hoac PATH)."""
+    env = os.environ.get("AUTOSUB_PIPER_EXE")
+    if env and Path(env).is_file():
+        return Path(env)
+    exe_name = "piper.exe" if os.name == "nt" else "piper"
+    bundled = bundled_dir("piper")
+    if bundled:
+        candidate = bundled / exe_name
+        if candidate.is_file():
+            return candidate
+    dev_candidate = app_root() / "assets" / "piper" / exe_name
+    if dev_candidate.is_file():
+        return dev_candidate
+    which = shutil.which(exe_name) or shutil.which("piper")
+    if which:
+        return Path(which)
+    return None
+
+
+def piper_espeak_data_dir() -> Path | None:
+    """Thu muc espeak-ng-data di kem piper neu co."""
+    env = os.environ.get("AUTOSUB_PIPER_ESPEAK_DATA")
+    if env and Path(env).is_dir():
+        return Path(env)
+    bundled = bundled_dir("piper")
+    if bundled:
+        candidate = bundled / "espeak-ng-data"
+        if candidate.is_dir():
+            return candidate
+    dev_candidate = app_root() / "assets" / "piper" / "espeak-ng-data"
+    if dev_candidate.is_dir():
+        return dev_candidate
+    piper_exe = piper_bin_path()
+    if piper_exe:
+        sibling = piper_exe.parent / "espeak-ng-data"
+        if sibling.is_dir():
+            return sibling
+    return None
