@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autosub-studio"
+version = "1.2.0"
+description = "Cong cu tach phu de, dich va long tieng video tu dong"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6",
+    "SQLAlchemy>=2.0",
+    "charset-normalizer>=3.4",
+    "rapidfuzz>=3.14,<4",
+]
+
+[project.optional-dependencies]
+speech = ["faster-whisper>=1.0"]
+translate = ["deep-translator>=1.11"]
+tts = ["edge-tts>=6.1"]
+ocr = ["rapidocr>=3.9.2", "onnxruntime>=1.22"]
+dev = ["pytest>=8.0", "pytest-qt>=4.4", "ruff>=0.6", "mypy>=1.11", "pyinstaller>=6.10"]
+
+[project.scripts]
+autosub-studio = "autosub_studio.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["B008", "SIM108"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/autosub_studio"]
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

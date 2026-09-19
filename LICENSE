@@ -1,0 +1,45 @@
+MIT License
+
+Copyright (c) 2026 AutoSub Studio
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+THANH PHAN BEN THU BA DI KEM BAN DONG GOI
+=========================================
+
+FFmpeg (ffmpeg.exe, ffprobe.exe trong thu muc _internal\ffmpeg)
+    Ban dung o day la ban "essentials" cua Gyan Doshi, phat hanh theo giay phep
+    GNU General Public License version 3 (GPL v3).
+    Ma nguon va giay phep day du: https://www.gyan.dev/ffmpeg/builds/
+                                   https://ffmpeg.org/legal.html
+    FFmpeg duoc goi nhu mot chuong trinh rieng qua dong lenh, khong lien ket
+    vao ma nguon cua AutoSub Studio.
+
+Mo hinh nhan dang giong noi (thu muc _internal\models\faster-whisper-small)
+    Chuyen doi tu Whisper cua OpenAI, phat hanh theo giay phep MIT.
+    Nguon: https://huggingface.co/Systran/faster-whisper-small
+
+Mo hinh doc chu tren hinh (di kem thu vien rapidocr-onnxruntime)
+    Dua tren PaddleOCR, phat hanh theo giay phep Apache License 2.0.
+
+Cac thu vien Python khac (PySide6, SQLAlchemy, faster-whisper, edge-tts,
+deep-translator, onnxruntime...) giu giay phep rieng cua chung; ban sao giay
+phep nam trong thu muc _internal.

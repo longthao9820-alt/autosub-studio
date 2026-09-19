@@ -1,0 +1,228 @@
+AUTOSUB STUDIO 1.0.0  -  BAN CHAY DOC LAP
+=========================================
+
+Thu muc nay da co san moi thu: FFmpeg, mo hinh nhan dang giong noi,
+mo hinh doc chu tren hinh va thu vien tang toc bang card do hoa.
+KHONG can cai dat gi them.
+
+
+TANG TOC BANG CARD DO HOA
+-------------------------
+Phan mem TU DONG dung card do hoa cua may, khong phai bat gi.
+
+Do tren card NVIDIA RTX 3060:
+   Nhan dang giong noi   : nhanh gap 3,6 lan CPU
+   Doc chu tren hinh OCR : nhanh gap 4,7 lan CPU
+   Render video          : nhanh gap 4,0 lan CPU
+
+May co card NVIDIA  -> nhanh ca ba viec
+May co chip Intel   -> render nhanh (Quick Sync)
+May co card AMD     -> render nhanh (AMF)
+May khong co card   -> van chay binh thuong bang CPU, chi cham hon
+
+Truoc khi giao viec cho card, phan mem chay thu mot tam anh nho. May nao
+thieu thu vien thi no tu doc bang CPU, khong bao loi giua chung.
+
+Dieu kien duy nhat: may do da cai driver card do hoa (may dung binh
+thuong thi da co san). Khong phai cai CUDA Toolkit.
+
+Muon xem may dang dung gi: nhap dup KIEM-TRA-MAY-NAY.bat,
+hoac xem dong trang thai o tab "Cai dat chung".
+
+Muon tat tang toc: tab "Cai dat chung", bo chon hai o
+"Nhan dang giong noi bang card do hoa" va "Render video bang phan cung".
+
+
+MO PHAN MEM
+-----------
+Nhap dup vao tep  AutoSubStudio.exe
+
+Lan dau Windows co the hien bang "Windows protected your PC".
+Bam More info -> Run anyway.
+
+Muon mo nhanh: nhap chuot phai vao AutoSubStudio.exe ->
+Send to -> Desktop (create shortcut).
+
+
+CHUYEN SANG MAY KHAC
+--------------------
+Chep NGUYEN CA THU MUC nay sang may Windows kia (USB, o cung ngoai,
+hay mang deu duoc), roi nhap dup AutoSubStudio.exe la chay ngay.
+
+Du an va cai dat cua ban nam trong thu muc "Data" ben trong, nen chep
+di dau cung khong mat.
+
+Muon chac chan may moi chay duoc:
+  - Nhap dup  KIEM-TRA-MAY-NAY.bat   (kiem tra nhanh, khoang 10 giay)
+  - Nhap dup  KIEM-TRA-SAU.bat       (chay thu that, khoang 1-2 phut)
+Ket qua hien len man hinh va luu vao tep ket-qua-kiem-tra.txt
+
+
+LAM MOT VIDEO
+-------------
+1. Tab "Danh sach du an"   -> Tao du an moi -> chon video
+2. Tab "B1: Tach sub"      -> Lay phu de bang giong noi
+                              (chay ngay, khong can Internet)
+
+Neu video da co phu de tieng Trung chay san tren hinh:
+  - Chon "Tach Bang Chu (OCR)"
+  - De Ngon Ngu Sub = Simplified Chinese
+  - De Che Do Trich Xuat = Chinh Xac
+  - De Server = PP-OCRv6 Medium (Chuan nhat)
+  - Khoanh sat vung phu de, khong lay qua nhieu logo/chu quang cao
+
+Che do Chinh Xac lay 6 hinh/giay, bo ket qua duoi 50%, doc lai ca dong
+va doi chieu 3 khung lien tiep. Mo hinh da duoc dong goi san, khong can mang.
+   Hoac neu video da co chu chay san tren hinh (hardsub):
+      a) Mo du an -> video hien hinh ngay, va khung xanh CO SAN o phan
+         duoi man hinh Screen Edit. Khong phai bat tat gi ca.
+      b) Keo GIUA khung de di chuyen den cho co chu
+         Keo 8 NUT XANH o vien de phong to / thu nho khung
+         Luc dang keo, phan ngoai khung mo di cho de ngam
+      c) Bam "Lay phu de bang OCR"
+      Muon dua khung ve cho ban dau: bam "Dat Lai Vung Mac Dinh"
+      Khung xanh CHI co o Screen Edit. Tab Screen Render de xem lai
+      thanh pham nen khong co khung nao che tam nhin.
+
+   CAU HINH MAC DINH GIONG NTS
+   Anh goc duoc dua thang vao PP-OCRv4, khong tu loc theo mau va khong
+   tu bo chu dung yen. Video thong thuong chi can khoanh sat dong phu de.
+     - Loc MAU CHU la tuy chon chi dinh. De trong = KHONG LOC MAU.
+       Chi bam "Chon Mau..." hoac nhap #RRGGBB khi trong vung OCR co
+       logo/chu quang cao khac mau. Bam "Clear" de tat va dung anh goc.
+       Video net de sai lech 10-15%, video mo thi co the tang len.
+     - Theo CHIEU CAO CHU: o "Loai Bo Chieu Cao Chu: Nho Hon < ... Va
+       Lon Hon > ..." bo cac dong qua thap (chu ghi chu nho) hoac qua
+       cao (chu tieu de to). Mac dinh 25-200 px giong du an NTS cua ban.
+       Nen khoanh sat phu de; bam "Do Chieu Cao Chu" neu muon do tu video.
+   Video qua toi hoac qua bac lam chu chim vao nen: keo them hai thanh
+   "Chinh Sang" va "Chinh Tuong Phan".
+   Do tren mot video dung san (nen nhieu mau, nen manh, co logo trang
+   cung mau phu de va chu quang cao vang ngay trong vung khoanh):
+   truoc khi loc doc ra 12 cau, giong ban goc 77%; sau khi loc con dung
+   6 cau, giong ban goc 99,5%.
+
+   MOC THOI GIAN DUOC DO HAI LAN CHO KHOP
+   Lan dau quet thua nen moc chi dung trong khoang nua giay. Sau do
+   phan mem lay them cac khung sat nhau quanh dau va cuoi moi cau de
+   tim dung luc chu hien ra va bien mat.
+   Do tren video co moc biet truoc: sai so tu 257 xuong 50 mili giay.
+   Doi lai thoi gian chay lau hon khoang gap doi.
+   Muon nhanh hon: tab B1 bo chon "Do lai moc thoi gian cho chinh xac"
+
+   TACH SUB XONG LA CO NGAY TEP .SRT
+   Tep phu de duoc tu dong luu vao DUNG THU MUC chua video ban da them,
+   trung ten voi video:  tap 01.mp4  ->  tap 01.srt
+   Khong phai bam xuat tay. Lan tach sau ghi de dung tep do.
+   Neu canh video da co san tep .srt trung ten tu truoc thi phan mem
+   de yen tep cu va luu thanh tap 01_1.srt.
+   Muon tat: tab "Cai dat chung" -> bo chon
+   "Tach sub xong thi luu luon tep .srt canh video"
+3. Sua lai phu de o bang goc tren ben phai.
+   Bam "Kiem tra time" de do cac cau bi loi thoi gian.
+4. Tab "B2: Dich noi dung" -> chon ngon ngu -> Dich toan bo du an
+                              (buoc nay can Internet)
+5. Tab "B3: Ghep Giong Doc"
+   - Mo VoiceStudio, chon Server = "VoiceStudio Local".
+   - Bam "Ket Noi VoiceStudio / Nap Giong". Danh sach chi co English/US:
+     8 giong Kitten English, profile English trong VoiceStudio va Edge US du phong.
+   - Chon "Long Tieng Vao Video" de xuat luon tep *_long_tieng.mp4.
+   - "Giu Tieng Goc" tu lay audio cua video va ha xuong 20% mac dinh.
+   - Co the chinh toc do, cao do, Bass/Mid/Treble, khoang nghi cuoi,
+     luu tung voice va gan profile giong Mac dinh/Nam/Nu.
+   - Bam "START: Long Tieng". Giong Free tu thu lai 3 lan neu mang chap chon.
+6. Tab "B4: Render va xuat" -> Render video
+
+Muon chay lien mot mach: tich chon cac buoc o cot "Cac buoc chay tu dong"
+goc duoi ben trai, roi bam "Chay kich ban".
+
+Tai "Cau Hinh Chung", nhap ten va bam "Tao Moi" de luu mot bo cau hinh.
+Chon ten trong danh sach de ap dung; nut "Xoa" xoa profile, khong xoa tep tam.
+
+
+NHAP CHUOT PHAI VAO DONG DU AN
+------------------------------
+Nhap chuot phai vao mot dong trong bang du an la hien menu lam duoc
+gan het moi viec, khoi phai di vong qua cac tab:
+
+   Mo du an
+   Tach sub bang chu tren hinh (OCR)
+   Tach sub bang giong noi
+   Dich phu de
+   Phan tach giong nam / nu
+   Long tieng theo ban dich
+   Che mo phu de goc
+   Render video
+   Chay kich ban dang tich chon
+   Xuat phu de .srt...
+   Mo thu muc du an
+   Xem nhat ky cua du an
+   Dung cac tac vu dang chay
+   Xoa du an...
+
+Chon viec gi thi phan mem tu mo du an o dong do truoc roi moi chay.
+Nhap chuot phai vao cho trong trong bang thi hien "Tao du an moi".
+
+
+CHUC NANG NAO CAN INTERNET
+--------------------------
+Can mang : dich bang Google hoac Claude, giong doc Edge TTS
+Khong can: nhan dang giong noi, doc chu tren hinh, tach nhac,
+           long tieng bang giong Windows, render video
+
+
+DU LIEU LUU O DAU
+-----------------
+Tat ca nam trong thu muc "Data" ngay canh tep chay:
+    Data\workspace\projects\   -> du an, video, phu de, ket qua render
+    Data\workspace\db\         -> danh sach du an
+    Data\config\               -> cai dat va khoa API
+
+Neu chep phan mem vao noi khong ghi duoc (vi du o dia CD), phan mem
+tu chuyen sang luu o Documents va AppData nhu binh thuong.
+
+
+PHIM TAT
+--------
+Space          Phat / tam dung
+Ctrl+S         Luu du an
+Ctrl+Z / Y     Hoan tac / lam lai
+Ctrl+K         Tach cau tai vi tri video
+Ctrl+M         Gop cac cau dang chon
+Ctrl+N         Them cau moi
+Ctrl+Delete    Xoa cac cau dang chon
+
+
+LOI THUONG GAP
+--------------
+Mo len bao thieu FFmpeg
+    -> Nhap dup KIEM-TRA-MAY-NAY.bat de xem thieu gi.
+       Thu muc _internal\ffmpeg phai co ffmpeg.exe va ffprobe.exe.
+       Neu thieu, ban da chep thieu tep khi mang folder sang may khac.
+
+Nhan dang ra chu sai nhieu
+    -> Chay buoc "Xoa nhac nen, giu loi thoai" truoc khi nhan dang.
+
+Khong thay tep .srt canh video
+    -> Xem o Nhat ky ben phai, dong "Da tu dong luu phu de: ..." se ghi
+       ro duong dan. Neu thu muc video khong ghi duoc (o USB da rut,
+       thu muc chi doc) thi tep nam trong thu muc "exports" cua du an.
+       Cung kiem tra tab "Cai dat chung" xem o "Tach sub xong thi luu
+       luon tep .srt canh video" con duoc tich khong.
+
+Render rat lau
+    -> Kiem tra xem may co dung card do hoa khong (KIEM-TRA-MAY-NAY.bat).
+       Neu khong co card, tab B4 doi "Toc do ma hoa" sang veryfast
+       va tang CRF len 24-26.
+
+Tep render ra nang hon truoc
+    -> Render bang card do hoa cho tep nang hon mot chut o cung muc
+       chat luong. Tang CRF o tab B4 len 24-26 la tep nho lai.
+
+Phan mem tu tat
+    -> Xem tep Data\config\logs\crash.log
+
+
+HUONG DAN DAY DU
+----------------
+Xem tep README.md trong cung thu muc nay.

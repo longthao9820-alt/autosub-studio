@@ -1,0 +1,77 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+
+# Test runs, benchmark & smoke artifacts
+.pytest*
+.pytest-final-venv/
+.capcut_smoke/
+.ocr_bench_*/
+.ocr_quality_*/
+.dub_smoke_*/
+
+# PyInstaller & build outputs
+build/
+build-*/
+dist/
+dist-*/
+*.spec.bak
+*.egg-info/
+
+# User data, workspace & configs
+Data/
+**/Data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets & credentials
+secrets.dat
+**/secrets.dat
+*.dat
+.env
+.env.*
+*.key
+*.pem
+*.secret
+
+# Large binaries & vendor assets (tải ngoài theo README, không đưa vào Git)
+assets/cuda/
+assets/ffmpeg/
+assets/download/
+assets/models/
+*.dll
+*.exe
+*.bin
+
+# Local test media & logs
+*.log
+crash.log
+ket-qua-kiem-tra.txt
+NTS_AUDIT.json
+.dub_panel_preview.png
+.voicestudio_test.wav
+[1-6].png
+/*.png
+/*.wav
+/*.mp4
+/*.mp3
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Agent / Tool local state
+.prime/
