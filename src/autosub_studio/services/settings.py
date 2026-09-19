@@ -130,9 +130,9 @@ class Settings:
     llm_model: str = "sub"
 
     # Long tieng
-    tts_provider: str = "VoiceStudio Local (English US)"
-    tts_language: str = "en-US"
-    tts_voice: str = "Kitten English Male 2|kittentts|expr-voice-2-m"
+    tts_provider: str = "Local Voice"
+    tts_language: str = "vi-VN"
+    tts_voice: str = ""
     tts_rate: int = 0
     tts_volume: int = 100
     tts_speed_percent: int = 100
@@ -332,9 +332,10 @@ class Settings:
         # lai SAPI neu muon.
         migrated_voice = False
         if old_schema < 11:
-            settings.tts_provider = "VoiceStudio Local (English US)"
-            settings.tts_language = "en-US"
-            settings.tts_voice = "Kitten English Male 2|kittentts|expr-voice-2-m"
+            settings.tts_provider = "Local Voice"
+            settings.tts_language = "vi-VN"
+            settings.tts_voice = ""
+            settings.local_voice = ""
             settings.target_language = "en"
             settings.tts_voice_profiles = []
             migrated_voice = True
@@ -387,6 +388,36 @@ class Settings:
                         "claude",
                     }:
                         prof["translate_provider"] = "AI Gateway"
+        # tts_provider always Local Voice; old settings migrate prompt via empty local_voice
+        if settings.tts_provider != "Local Voice":
+            settings.tts_provider = "Local Voice"
+            migrated_voice = True
+        legacy_voice_tokens = (
+            "kittentts",
+            "expr-voice",
+            "VoiceStudio",
+            "SAPI",
+            "Edge",
+            "Kitten",
+            "|",
+        )
+        if any(k in settings.tts_voice for k in legacy_voice_tokens):
+            settings.tts_voice = ""
+            migrated_voice = True
+        if any(k in settings.local_voice for k in legacy_voice_tokens):
+            settings.local_voice = ""
+            migrated_voice = True
+        for prof in settings.config_profiles.values():
+            if isinstance(prof, dict):
+                if prof.get("tts_provider") != "Local Voice":
+                    prof["tts_provider"] = "Local Voice"
+                    migrated_voice = True
+                if any(k in str(prof.get("tts_voice", "")) for k in legacy_voice_tokens):
+                    prof["tts_voice"] = ""
+                    migrated_voice = True
+                if any(k in str(prof.get("local_voice", "")) for k in legacy_voice_tokens):
+                    prof["local_voice"] = ""
+                    migrated_voice = True
         # Ban schema 1 dat nham +100 (muc cuc dai) lam mac dinh, khien net
         # chu Trung Quoc bi bet/mat khi loc mau. Dua gia tri mac dinh cu ve
         # trung tinh; cac gia tri nguoi dung chon khac van duoc giu nguyen.

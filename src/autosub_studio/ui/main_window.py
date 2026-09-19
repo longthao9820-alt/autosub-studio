@@ -13,8 +13,9 @@ import threading
 from functools import partial
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -44,14 +45,27 @@ from ..core.timecode import TimecodeError, format_display, parse_timecode
 from ..data.db import AutoScript, Database, Project, TaskLog
 from ..data.project import ProjectData, ProjectFormatError, ProjectStore
 from ..pipeline import steps as P
-from ..providers import download, nts_import, tts
-from ..services import gpu, media
+from ..providers import download, nts_import
+from ..providers.local_voice import (
+    STATUS_READY,
+    get_default_manager,
+    get_voice_info,
+    piper_runtime_ready,
+    synthesize_piper,
+)
+from ..services import gpu
 from ..services.ffmpeg import CancelToken, FFmpeg, FFmpegError
 from ..services.paths import bundled_dir, ensure_workspace, safe_name
 from ..services.settings import Settings
 from ..services.tasks import CANCELLED, DONE, PENDING, RUNNING, TaskContext, TaskManager
 from .cue_table import CueTableModel, CueTableView
-from .dialogs import AIGatewayDialog, IssueDialog, LogDialog, ShiftDialog
+from .dialogs import (
+    AIGatewayDialog,
+    IssueDialog,
+    LogDialog,
+    ShiftDialog,
+    VoiceLibraryDialog,
+)
 from .panels import (
     CapCutPanel,
     DubPanel,
@@ -120,6 +134,10 @@ class MainWindow(QMainWindow):
         self._busy_project: int = 0
         self._logs: dict[str, list[str]] = {}
         self._download_task_ids: set[str] = set()
+        self._preview_task_ids: set[str] = set()
+        self._preview_player = QMediaPlayer(self)
+        self._preview_audio_output = QAudioOutput(self)
+        self._preview_player.setAudioOutput(self._preview_audio_output)
         self._session_log: list[str] = []
         if stale_ocr_freed:
             self._session_log.append(
@@ -750,10 +768,10 @@ class MainWindow(QMainWindow):
         self.translate_panel.translateSelected.connect(self._translate_selected)
         self.translate_panel.importTranslation.connect(self._import_translation)
 
-        self.dub_panel.runDub.connect(lambda: self._run_step(P.STEP_DUB))
+        self.dub_panel.runDub.connect(self._start_dub)
         self.dub_panel.separateAudio.connect(lambda: self._run_step(P.STEP_KEEP_VOICE))
         self.dub_panel.previewVoice.connect(self._preview_voice)
-        self.dub_panel.refreshVoices.connect(self._refresh_voices)
+        self.dub_panel.openVoiceLibrary.connect(self._open_voice_library)
         self.dub_panel.runDiarize.connect(lambda: self._run_step(P.STEP_DIARIZE))
 
         self.capcut_panel.createDraft.connect(lambda: self._run_step(P.STEP_CAPCUT))
@@ -2058,7 +2076,42 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def _require_voice_model_ready(self) -> bool:
+        voice_id = (self.settings.local_voice or self.settings.tts_voice).strip()
+        if not voice_id:
+            QMessageBox.warning(
+                self,
+                "Chưa chọn giọng đọc",
+                "Chưa chọn giọng đọc nào. Vui lòng mở Thư viện giọng để tải và chọn giọng đọc.",
+            )
+            return False
+        runtime_ok, runtime_msg = piper_runtime_ready()
+        if not runtime_ok:
+            QMessageBox.warning(self, "Piper chưa sẵn sàng", runtime_msg)
+            return False
+        mgr = get_default_manager()
+        status = mgr.get_status(voice_id)
+        if status != STATUS_READY:
+            QMessageBox.warning(
+                self,
+                "Giọng đọc chưa sẵn sàng",
+                (
+                    f"Giọng đọc '{voice_id}' chưa được tải về hoặc bị lỗi. "
+                    "Vui lòng mở Thư viện giọng để tải về."
+                ),
+            )
+            return False
+        return True
+
+    def _start_dub(self) -> None:
+        self.dub_panel.apply(self.settings)
+        if not self._require_voice_model_ready():
+            return
+        self._run_step(P.STEP_DUB)
+
     def _run_step(self, name: str) -> None:
+        if name == P.STEP_DUB and not self._require_voice_model_ready():
+            return
         if not self._require_project() or not self._require_idle():
             return
         if not self.ff.available:
@@ -2075,6 +2128,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self, "Chua chon buoc", "Hay tich chon it nhat mot buoc trong danh sach."
             )
+            return
+        if P.STEP_DUB in names and not self._require_voice_model_ready():
             return
         if not self._require_project() or not self._require_idle():
             return
@@ -2162,9 +2217,18 @@ class MainWindow(QMainWindow):
         name = record.name if record else task_id
         is_batch = task_id in self._batch_task_ids
         is_download = task_id in self._download_task_ids
+        is_preview = task_id in self._preview_task_ids
 
         if status == DONE:
             text = str(result or message)
+            if is_preview:
+                self._preview_task_ids.discard(task_id)
+                audio_path = Path(text)
+                if audio_path.is_file():
+                    self._preview_player.stop()
+                    self._preview_player.setSource(QUrl.fromLocalFile(str(audio_path.resolve())))
+                    self._preview_player.play()
+                    self._log(f"Đang phát nghe thử: {audio_path.name}")
             if is_download:
                 try:
                     downloaded = Path(text)
@@ -2180,27 +2244,34 @@ class MainWindow(QMainWindow):
             self._set_project_status(project_id, task="", status="Xong", progress=100)
             self.statusBar().showMessage(text, 8000)
         elif status == CANCELLED:
+            if is_preview:
+                self._preview_task_ids.discard(task_id)
             self._log(f"Da huy: {name}")
             self._set_project_status(project_id, task="", status="Da huy", progress=0)
         else:
+            if is_preview:
+                self._preview_task_ids.discard(task_id)
             self._log(f"LOI: {name} - {message}")
             self._set_project_status(project_id, task="", status=f"Loi: {message[:60]}", progress=0)
-            if not is_batch:
+            if not is_batch and not is_preview:
                 QMessageBox.critical(self, "Tac vu that bai", message)
+            elif is_preview:
+                QMessageBox.critical(self, "Không tạo được giọng đọc", message)
 
         detail_lines = self._logs.pop(task_id, [])
         stored_message = message
         if detail_lines:
             stored_message += "\n\n" + "\n".join(detail_lines)
-        with self.db.session() as s:
-            s.add(
-                TaskLog(
-                    project_id=project_id,
-                    name=name,
-                    status=status,
-                    message=stored_message[:50000],
+        if project_id:
+            with self.db.session() as s:
+                s.add(
+                    TaskLog(
+                        project_id=project_id,
+                        name=name,
+                        status=status,
+                        message=stored_message[:50000],
+                    )
                 )
-            )
 
         finished_data: ProjectData | None = None
         if project_id:
@@ -2794,82 +2865,85 @@ class MainWindow(QMainWindow):
             self._run_script(self.script_panel.checked_steps())
 
     def _on_tab_changed(self, index: int) -> None:
-        """Nap danh sach giong doc lan dau mo tab long tieng cho do cho luc khoi dong."""
         if self.tab_stack.widget(index) is self.dub_panel and not self._voices_loaded:
             self._voices_loaded = True
-            self._refresh_voices()
+            self.dub_panel.load(self.settings)
+            self.dub_panel.refresh_status()
 
-    def _refresh_voices(self) -> None:
-        provider = self.dub_panel.selected_provider()
-        language = "en-US"
-        self.statusBar().showMessage("Dang lay danh sach giong doc...", 3000)
-        if provider == tts.PROVIDER_VOICESTUDIO:
-            ready, reason = tts.start_voicestudio()
-            if not ready:
-                self.dub_panel.status.setText(reason)
-                self.dub_panel.refresh_status()
-                self._log(reason)
-                return
-        voices = tts.list_voices(provider, language)
-        if not voices and provider == tts.PROVIDER_EDGE:
-            voices = tts.list_voices(provider, "")
-        self.dub_panel.set_voices(voices)
-        if voices and self.dub_panel.voice.currentText() not in voices:
-            self.dub_panel.voice.setCurrentText(voices[0])
+    def _open_voice_library(self) -> None:
+        current = (self.settings.local_voice or self.settings.tts_voice).strip()
+        dlg = VoiceLibraryDialog(parent=self, current_voice=current)
+        dlg.selectedVoice.connect(self._on_voice_selected)
+        if dlg.exec() and dlg.selected_voice:
+            self._on_voice_selected(dlg.selected_voice)
+
+    def _on_voice_selected(self, voice_id: str) -> None:
+        voice_id = voice_id.strip()
+        if not voice_id:
+            return
+        self.settings.local_voice = voice_id
+        self.settings.tts_voice = voice_id
+        self.settings.tts_provider = "Local Voice"
+        self.settings.save()
+        self.dub_panel.load(self.settings)
         self.dub_panel.refresh_status()
-        self._log(f"Tim thay {len(voices)} giong doc cho {provider}.")
+        self._log(f"Đã chọn giọng đọc: {voice_id}")
 
     def _preview_voice(self) -> None:
-        if not self._require_project() or self.project is None:
-            return
-        row = self._current_row()
-        cues = self.cue_model.doc.cues
-        if not 0 <= row < len(cues):
-            QMessageBox.information(
-                self, "Chua chon cau", "Hay chon mot cau trong bang phu de de nghe thu."
-            )
-            return
-        cue = cues[row]
-        text = cue.translation.strip() or cue.text.strip()
-        if not text:
-            QMessageBox.information(self, "Cau rong", "Cau nay khong co noi dung.")
-            return
         self.dub_panel.apply(self.settings)
-        if self.settings.tts_provider == tts.PROVIDER_VOICESTUDIO:
-            self.settings.tts_rate = self.settings.tts_speed_percent - 100
-            preview_tempo = 1.0
-        else:
-            self.settings.tts_rate = 0
-            preview_tempo = self.settings.tts_speed_percent / 100.0
-        raw = Path(self.project.folder) / "temp" / "preview_raw.wav"
-        out = Path(self.project.folder) / "temp" / "preview.wav"
-        try:
-            produced = tts.synthesize_cached(
-                self.settings.tts_provider,
-                text.replace("\n", " "),
-                raw,
-                voice=self.settings.tts_voice,
-                rate=self.settings.tts_rate,
-                volume=self.settings.tts_volume,
-                enabled=self.settings.tts_cache_enabled,
-            )
-            media.to_wav(
-                self.ff,
-                produced,
-                out,
-                tempo=preview_tempo,
-                pitch=self.settings.tts_pitch_percent / 100.0,
-                volume=(
-                    self.settings.tts_volume / 100.0
-                    if self.settings.tts_provider == tts.PROVIDER_VOICESTUDIO
-                    else 1.0
-                ),
-            )
-        except (tts.TTSError, FFmpegError) as exc:
-            QMessageBox.critical(self, "Khong tao duoc giong doc", str(exc))
+        if not self._require_voice_model_ready():
             return
-        self._open_path(str(out))
-        self._log(f"Da tao thu giong doc: {out}")
+
+        voice_id = (self.settings.local_voice or self.settings.tts_voice).strip()
+
+        # Text to synthesize: use selected cue text if project, else localized sample
+        text = ""
+        if self.project is not None and hasattr(self, "cue_model") and self.cue_model is not None:
+            row = self._current_row()
+            doc = getattr(self.cue_model, "doc", None)
+            cues = doc.cues if doc and hasattr(doc, "cues") else []
+            if 0 <= row < len(cues):
+                cue = cues[row]
+                text = cue.translation.strip() or cue.text.strip()
+        if not text:
+            info = get_voice_info(voice_id)
+            lang = info.language if info else ""
+            if lang.startswith("vi"):
+                text = "Xin chào, đây là giọng đọc thử nghiệm."
+            elif lang.startswith("zh"):
+                text = "你好，这是测试语音。"
+            else:
+                text = "Hello, this is a test voice."
+
+        speed = max(0.25, min(4.0, self.settings.tts_speed_percent / 100.0))
+
+        if self.project is not None:
+            out_dir = Path(self.project.folder) / "temp"
+            project_id = self.project_id
+        else:
+            import tempfile
+
+            out_dir = Path(tempfile.gettempdir()) / "autosub_preview"
+            project_id = 0
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / f"preview_{safe_name(voice_id)}.wav"
+
+        def job(ctx: TaskContext) -> str:
+            ctx.progress(10)
+            ctx.log("Đang tạo giọng đọc nghe thử...")
+            produced = synthesize_piper(
+                text=text.replace("\n", " "),
+                out_path=out,
+                voice_id=voice_id,
+                speed=speed,
+            )
+            ctx.progress(100)
+            ctx.log("Đã tạo giọng đọc nghe thử.")
+            return str(produced)
+
+        task_id = self.tasks.submit("Nghe thử giọng đọc", job, project_id=project_id, timeout=60)
+        self._preview_task_ids.add(task_id)
+        self._log(f"Đang tạo nghe thử cho giọng '{voice_id}'...")
 
     # ------------------------------------------------------------------ cai dat duong dan
 

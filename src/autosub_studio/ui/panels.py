@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..pipeline import steps as pipeline_steps
-from ..providers import asr, ocr, ocr_filter, separate, translate, tts
+from ..providers import asr, ocr, ocr_filter, separate, translate
 from ..services.settings import Settings
 from .style import BLUE, GREEN, MUTED
 from .widgets import VerticalTabStrip, field_label
@@ -964,12 +964,22 @@ class TranslatePanel(QWidget):
 # =========================================================== B3: Ghep Giong Doc
 
 
+class _ReadOnlyVoiceCombo(QComboBox):
+    """Combobox chi doc cho phep chon giong doc da tai."""
+
+    def setCurrentText(self, text: str) -> None:
+        if text and self.findText(text) < 0:
+            self.addItem(text, text)
+        super().setCurrentText(text)
+
+
 class DubPanel(QWidget):
     """B3 - long tieng."""
 
     runDub = Signal()
     previewVoice = Signal()
     separateAudio = Signal()
+    openVoiceLibrary = Signal()
     refreshVoices = Signal()
     runDiarize = Signal()
 
@@ -1010,20 +1020,13 @@ class DubPanel(QWidget):
 
     def _build_voice_box(self) -> QGroupBox:
         box = QGroupBox("Giọng Đọc Lồng Tiếng")
-        self.provider = QComboBox()
-        available = tts.available_providers()
-        if tts.PROVIDER_VOICESTUDIO in available:
-            self.provider.addItem("VoiceStudio Local", tts.PROVIDER_VOICESTUDIO)
-        if tts.PROVIDER_EDGE in available:
-            self.provider.addItem("Edge English US", tts.PROVIDER_EDGE)
-        if tts.PROVIDER_SAPI in available:
-            self.provider.addItem("Windows English", tts.PROVIDER_SAPI)
         self.language = QComboBox()
+        self.language.addItem("Tiếng Việt", "vi-VN")
         self.language.addItem("English (United States)", "en-US")
-        self.voice = QComboBox()
-        self.voice.setEditable(True)
-        self.btn_refresh = QPushButton("Cài Đặt Server")
-        self.btn_refresh.setText("Kết Nối VoiceStudio / Nạp Giọng")
+        self.voice = _ReadOnlyVoiceCombo()
+        self.voice.setEditable(False)
+        self.voice.currentIndexChanged.connect(lambda _i: self.refresh_status())
+        self.btn_library = QPushButton("Thư viện giọng")
         self.btn_preview = QPushButton("▶")
         self.btn_dictionary = QPushButton("Pronunciation Dictionary")
         self.btn_punctuation = QPushButton("Chỉnh Dấu Câu")
@@ -1038,8 +1041,6 @@ class DubPanel(QWidget):
         self.rate.setRange(50, 200)
         self.rate.setValue(100)
         self.lbl_rate = QLabel("1.00x")
-        self.pitch = _slider(50, 200, 100)
-        self.lbl_pitch = QLabel("1.00x")
         self.original_volume = _slider(0, 100, 20)
         self.lbl_original_volume = QLabel("20%")
         self.bass = _slider(-12, 12, 0)
@@ -1059,32 +1060,20 @@ class DubPanel(QWidget):
             value_label.setFixedWidth(46)
             slider.valueChanged.connect(lambda v, lb=value_label, sf=suffix: lb.setText(f"{v}{sf}"))
         self.rate.valueChanged.connect(lambda v: self.lbl_rate.setText(f"{v / 100:.2f}x"))
-        self.pitch.valueChanged.connect(lambda v: self.lbl_pitch.setText(f"{v / 100:.2f}x"))
 
-        self.btn_refresh.clicked.connect(self.refreshVoices)
+        self.btn_library.clicked.connect(self.openVoiceLibrary)
         self.btn_preview.clicked.connect(self.previewVoice)
         self.btn_dictionary.clicked.connect(self._edit_dictionary)
         self.btn_punctuation.clicked.connect(self._edit_punctuation)
-        self.provider.currentTextChanged.connect(lambda _t: self.refresh_status())
-        self.provider.currentIndexChanged.connect(lambda _i: self.refreshVoices.emit())
 
         inner = QVBoxLayout(box)
         inner.setContentsMargins(8, 14, 8, 8)
         inner.setSpacing(9)
         inner.addLayout(
             _row(
-                "Server",
-                self.provider,
-                self.btn_refresh,
-                "Ngôn Ngữ Đọc:",
-                self.language,
-                None,
-            )
-        )
-        inner.addLayout(
-            _row(
                 "Chọn Giọng Đọc:",
                 self.voice,
+                self.btn_library,
                 self.btn_preview,
                 self.btn_dictionary,
                 self.btn_punctuation,
@@ -1098,9 +1087,6 @@ class DubPanel(QWidget):
                 "Tốc Độ Đọc:",
                 self.rate,
                 self.lbl_rate,
-                "Cao Độ:",
-                self.pitch,
-                self.lbl_pitch,
             )
         )
         inner.addLayout(
@@ -1164,7 +1150,7 @@ class DubPanel(QWidget):
 
         voices_box = QGroupBox("Danh Sách Giọng Đọc")
         self.voice_table = _table(
-            ["Phím tắt", "Language", "Gender", "Volume", "Speed", "Pitch", "Bass", "Mid", "Treble"],
+            ["Phím tắt", "Language", "Gender", "Volume", "Speed", "Bass", "Mid", "Treble"],
             height=150,
         )
         voices_layout = QVBoxLayout(voices_box)
@@ -1269,8 +1255,22 @@ class DubPanel(QWidget):
         current = self.voice.currentText()
         self.voice.clear()
         self.voice.addItems(voices)
-        if current:
+        if current and current in voices:
             self.voice.setCurrentText(current)
+        elif voices:
+            self.voice.setCurrentIndex(0)
+        self.refresh_status()
+
+    def set_selected_voice(self, voice_id: str) -> None:
+        idx = self.voice.findData(voice_id)
+        if idx < 0:
+            idx = self.voice.findText(voice_id)
+        if idx >= 0:
+            self.voice.setCurrentIndex(idx)
+        else:
+            self.voice.addItem(voice_id, voice_id)
+            self.voice.setCurrentIndex(self.voice.count() - 1)
+        self.refresh_status()
 
     def _add_voice_profile(self) -> None:
         voice = self.voice.currentText().strip()
@@ -1284,7 +1284,6 @@ class DubPanel(QWidget):
             "gender": gender,
             "volume": self.volume.value(),
             "speed": self.rate.value(),
-            "pitch": self.pitch.value(),
             "bass": self.bass.value(),
             "mid": self.mid.value(),
             "treble": self.treble.value(),
@@ -1317,7 +1316,6 @@ class DubPanel(QWidget):
                 labels.get(str(item.get("gender", "")), str(item.get("gender", ""))),
                 str(item.get("volume", 100)),
                 str(item.get("speed", 100)),
-                str(item.get("pitch", 100)),
                 str(item.get("bass", 0)),
                 str(item.get("mid", 0)),
                 str(item.get("treble", 0)),
@@ -1326,17 +1324,13 @@ class DubPanel(QWidget):
                 self.voice_table.setItem(row, column, QTableWidgetItem(value))
 
     def load(self, s: Settings) -> None:
-        self.provider.blockSignals(True)
-        index = self.provider.findData(s.tts_provider)
-        if index >= 0:
-            self.provider.setCurrentIndex(index)
-        elif self.provider.count():
-            self.provider.setCurrentIndex(0)
-        self.provider.blockSignals(False)
-        self.voice.setCurrentText(s.tts_voice)
+        chosen = s.local_voice or s.tts_voice
+        self.voice.clear()
+        if chosen:
+            self.voice.addItem(chosen, chosen)
+            self.voice.setCurrentText(chosen)
         self.volume.setValue(s.tts_volume)
         self.rate.setValue(s.tts_speed_percent)
-        self.pitch.setValue(s.tts_pitch_percent)
         self._dictionary_text = s.tts_dictionary
         self._pause_period_ms = s.tts_pause_period_ms
         self._pause_comma_ms = s.tts_pause_comma_ms
@@ -1364,24 +1358,47 @@ class DubPanel(QWidget):
         self.refresh_status()
 
     def selected_provider(self) -> str:
-        return str(self.provider.currentData() or self.provider.currentText())
+        return "Local Voice"
 
     def refresh_status(self) -> None:
-        provider = self.selected_provider()
-        ready, reason = tts.provider_ready(provider)
+        from ..providers import local_voice as lv
+
+        voice_id = str(self.voice.currentData() or self.voice.currentText() or "").strip()
+        runtime_ok, runtime_msg = lv.piper_runtime_ready()
+        if not runtime_ok:
+            ready = False
+            note = runtime_msg
+        elif not voice_id:
+            ready = False
+            note = "Chưa chọn giọng đọc. Vui lòng mở Thư viện giọng để tải và chọn giọng."
+        else:
+            mgr = lv.get_default_manager()
+            status = mgr.get_status(voice_id)
+            if status == lv.STATUS_READY:
+                ready = True
+                note = "Sẵn sàng."
+            elif status == lv.STATUS_DOWNLOADING:
+                ready = False
+                note = f"Giọng đọc '{voice_id}' đang tải về..."
+            else:
+                ready = False
+                note = (
+                    f"Giọng đọc '{voice_id}' chưa được tải về. "
+                    "Vui lòng mở Thư viện giọng để tải."
+                )
         self.btn_dub.setEnabled(ready)
         self.btn_preview.setEnabled(ready)
-        note = reason or "San sang."
         if not separate.demucs_available():
-            note += " Tach nhac dang dung FFmpeg (co ban)."
+            note += " Tách nhạc đang dùng FFmpeg (cơ bản)."
         self.status.setText(note)
 
     def apply(self, s: Settings) -> None:
         s.tts_provider = self.selected_provider()
-        s.tts_voice = self.voice.currentText().strip()
+        chosen = str(self.voice.currentData() or self.voice.currentText() or "").strip()
+        s.local_voice = chosen
+        s.tts_voice = chosen
         s.tts_volume = self.volume.value()
         s.tts_speed_percent = self.rate.value()
-        s.tts_pitch_percent = self.pitch.value()
         s.tts_dictionary = self._dictionary_text
         s.tts_pause_period_ms = self._pause_period_ms
         s.tts_pause_comma_ms = self._pause_comma_ms

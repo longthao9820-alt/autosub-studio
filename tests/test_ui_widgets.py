@@ -311,14 +311,12 @@ class TestBatchWorkerSetting:
         panel._add_voice_profile()
         panel.mode.setCurrentText("Lồng Tiếng Vào Video")
         panel.rate.setValue(115)
-        panel.pitch.setValue(95)
         panel.original_volume.setValue(20)
         panel.end_pause.setValue(250)
         panel.apply(settings)
 
         assert settings.dub_output_mode == "video"
         assert settings.tts_speed_percent == 115
-        assert settings.tts_pitch_percent == 95
         assert settings.original_audio_volume == 20
         assert settings.tts_end_pause_ms == 250
         assert settings.tts_voice_profiles[0]["gender"] == "nu"

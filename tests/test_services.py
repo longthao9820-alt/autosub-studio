@@ -340,9 +340,9 @@ class TestSettings:
         assert s.ocr_confidence == 70.0
         assert s.ocr_color_filter is False
         assert s.ocr_drop_static is False
-        assert s.tts_provider == "VoiceStudio Local (English US)"
-        assert s.tts_language == "en-US"
-        assert "kittentts" in s.tts_voice
+        assert s.tts_provider == "Local Voice"
+        assert s.tts_voice == ""
+        assert s.local_voice == ""
         assert s.dub_output_mode == "video"
         assert s.original_audio_volume == 20
 
@@ -380,12 +380,11 @@ class TestSettings:
 
         upgraded = Settings.load()
 
-        assert upgraded.tts_provider == "VoiceStudio Local (English US)"
-        assert "kittentts" in upgraded.tts_voice
+        assert upgraded.tts_provider == "Local Voice"
+        assert upgraded.tts_voice == ""
+        assert upgraded.local_voice == ""
         assert upgraded.config_profiles["default"]["dub_output_mode"] == "video"
-        assert upgraded.config_profiles["default"]["tts_provider"] == (
-            "VoiceStudio Local (English US)"
-        )
+        assert upgraded.config_profiles["default"]["tts_provider"] == "Local Voice"
 
     def test_legacy_ocr_config_is_upgraded(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path))
