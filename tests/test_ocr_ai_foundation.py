@@ -7,6 +7,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -123,11 +124,12 @@ class TestZeroLocalRapidOCRInAI:
 
         ai_called = []
 
-        def mock_read_frames_ai(*_args, **_kwargs):
+        def mock_run_ai_ocr_pipeline(*_args, **_kwargs):
             ai_called.append(True)
             return [Cue(0.0, 1.0, "Test AI Cue")]
 
-        monkeypatch.setattr(ocr_ai, "read_frames_ai", mock_read_frames_ai)
+        monkeypatch.setattr(ocr_ai, "run_ai_ocr_pipeline", mock_run_ai_ocr_pipeline)
+        monkeypatch.setattr(ocr_ai, "read_frames_ai", mock_run_ai_ocr_pipeline)
 
         msg = steps.step_ocr(pc)
         assert "1 cau" in msg
@@ -218,7 +220,7 @@ class TestAICacheKeyInvalidation:
         video = tmp_path / "v.mp4"
         video.write_bytes(b"content_1")
 
-        base_params = {
+        base_params: dict[str, Any] = {
             "video": video,
             "region": [0, 100, 200, 50],
             "fps": 2.0,

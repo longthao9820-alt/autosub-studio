@@ -13,12 +13,29 @@ import json
 import sqlite3
 import threading
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ..core.ocr_common import Rect, Row
 
 _DB_LOCK = threading.RLock()
+
+
+@dataclass
+class SegmentRecord:
+    """Ban ghi checkpoint cho mot doan phu de thi giac."""
+
+    segment_id: str
+    start: float
+    end: float
+    content_hash: str
+    text: str
+    confidence: float = 1.0
+    uncertain: bool = False
+
+    def __getitem__(self, item: str) -> Any:
+        return getattr(self, item)
 
 
 def hash_endpoint(endpoint: str) -> str:
@@ -120,6 +137,23 @@ def _init_db(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE frames ADD COLUMN content_hash TEXT")
 
     conn.execute(
+        "CREATE TABLE IF NOT EXISTS ai_segments ("
+        "cache_key TEXT NOT NULL, "
+        "segment_id TEXT NOT NULL, "
+        "start REAL NOT NULL, "
+        "end REAL NOT NULL, "
+        "content_hash TEXT, "
+        "text TEXT NOT NULL, "
+        "confidence REAL NOT NULL DEFAULT 1.0, "
+        "uncertain INTEGER NOT NULL DEFAULT 0, "
+        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+        "PRIMARY KEY(cache_key, segment_id))"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ai_segments_hash ON ai_segments(cache_key, content_hash);"
+    )
+
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS ai_cache_meta ("
         "cache_key TEXT PRIMARY KEY, "
         "engine TEXT NOT NULL, "
@@ -215,6 +249,150 @@ def save_frame_batch(
 
 
 save_frame_cache = save_frame_batch
+
+
+def load_segment_checkpoint(
+    cache_path: str | Path | None,
+    cache_key: str,
+) -> dict[str, SegmentRecord]:
+    """Doc cac doan phu de da hoan thanh tu checkpoint SQLite."""
+    if not cache_path or not cache_key:
+        return {}
+    path = Path(cache_path)
+    if not path.is_file():
+        return {}
+    try:
+        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+            connection.execute("PRAGMA busy_timeout=5000;")
+            _init_db(connection)
+            rows = connection.execute(
+                "SELECT segment_id, start, end, content_hash, text, confidence, uncertain "
+                "FROM ai_segments WHERE cache_key=?",
+                (cache_key,),
+            ).fetchall()
+    except (OSError, sqlite3.Error):
+        return {}
+    out: dict[str, SegmentRecord] = {}
+    for seg_id, start, end, ch, text, conf, unc in rows:
+        out[str(seg_id)] = SegmentRecord(
+            segment_id=str(seg_id),
+            start=float(start),
+            end=float(end),
+            content_hash=str(ch or ""),
+            text=str(text or ""),
+            confidence=float(conf if conf is not None else 1.0),
+            uncertain=bool(unc),
+        )
+    return out
+
+
+load_segment_cache = load_segment_checkpoint
+
+
+def load_segment_by_hash(
+    cache_path: str | Path | None,
+    cache_key: str,
+) -> dict[str, SegmentRecord]:
+    """Doc cac doan phu de theo content_hash tu checkpoint SQLite."""
+    if not cache_path or not cache_key:
+        return {}
+    path = Path(cache_path)
+    if not path.is_file():
+        return {}
+    try:
+        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+            connection.execute("PRAGMA busy_timeout=5000;")
+            _init_db(connection)
+            rows = connection.execute(
+                "SELECT segment_id, start, end, content_hash, text, confidence, uncertain "
+                "FROM ai_segments WHERE cache_key=? AND content_hash IS NOT NULL "
+                "AND content_hash != ''",
+                (cache_key,),
+            ).fetchall()
+    except (OSError, sqlite3.Error):
+        return {}
+    out: dict[str, SegmentRecord] = {}
+    for seg_id, start, end, ch, text, conf, unc in rows:
+        if ch:
+            out[str(ch)] = SegmentRecord(
+                segment_id=str(seg_id),
+                start=float(start),
+                end=float(end),
+                content_hash=str(ch),
+                text=str(text or ""),
+                confidence=float(conf if conf is not None else 1.0),
+                uncertain=bool(unc),
+            )
+    return out
+
+
+def save_segment_checkpoint(
+    cache_path: str | Path | None,
+    cache_key: str,
+    segments: Sequence[Any],
+) -> None:
+    """Luu ngay lap tuc mot lo doan phu de vao checkpoint SQLite WAL."""
+    if not cache_path or not cache_key or not segments:
+        return
+    path = Path(cache_path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+            _init_db(connection)
+            payload = []
+            for seg in segments:
+                if isinstance(seg, SegmentRecord):
+                    payload.append((
+                        cache_key,
+                        seg.segment_id,
+                        float(seg.start),
+                        float(seg.end),
+                        seg.content_hash,
+                        seg.text,
+                        float(seg.confidence),
+                        1 if seg.uncertain else 0,
+                    ))
+                elif isinstance(seg, dict):
+                    payload.append((
+                        cache_key,
+                        str(seg.get("segment_id") or seg.get("id", "")),
+                        float(seg.get("start", 0.0)),
+                        float(seg.get("end", 0.0)),
+                        str(seg.get("content_hash", "")),
+                        str(seg.get("text", "")),
+                        float(seg.get("confidence", 1.0)),
+                        1 if seg.get("uncertain") else 0,
+                    ))
+                else:
+                    seg_id = getattr(seg, "segment_id", None) or getattr(seg, "id", "")
+                    start = getattr(seg, "start", 0.0)
+                    end = getattr(seg, "end", 0.0)
+                    ch = getattr(seg, "content_hash", "")
+                    text = getattr(seg, "text", "")
+                    conf = getattr(seg, "confidence", 1.0)
+                    unc = getattr(seg, "uncertain", False)
+                    payload.append((
+                        cache_key,
+                        str(seg_id),
+                        float(start),
+                        float(end),
+                        str(ch),
+                        str(text),
+                        float(conf),
+                        1 if unc else 0,
+                    ))
+            connection.executemany(
+                "INSERT OR REPLACE INTO ai_segments("
+                "cache_key, segment_id, start, end, content_hash, text, confidence, uncertain) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                payload,
+            )
+            connection.commit()
+    except (OSError, sqlite3.Error):
+        return
+
+
+save_segment_batch = save_segment_checkpoint
 
 
 def save_cache_meta(

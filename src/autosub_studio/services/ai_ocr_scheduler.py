@@ -655,7 +655,6 @@ class AIOCRScheduler:
             self._metrics.record_active_change(-1)
 
             if job_state is not None:
-                job_state.in_flight.discard(task)
                 if success and results is not None:
                     for r in results:
                         job_state.completed_results[r.id] = r
@@ -664,8 +663,6 @@ class AIOCRScheduler:
                     job_state.failed = True
                     job_state.last_error = last_exc
                     job_state.failed_tasks.append(task)
-
-                job_state.condition.notify_all()
 
             self._worker_condition.notify_all()
 
@@ -677,6 +674,11 @@ class AIOCRScheduler:
         elif task.on_error is not None and last_exc is not None:
             with contextlib.suppress(Exception):
                 task.on_error(last_exc)
+
+        with self._lock:
+            if job_state is not None:
+                job_state.in_flight.discard(task)
+                job_state.condition.notify_all()
 
     def schedule_job(
         self,

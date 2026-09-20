@@ -473,3 +473,98 @@ def make_continuous(cues: list[Cue], max_gap: float = 1.5) -> list[Cue]:
         if 0 < gap <= max_gap:
             current.end = following.start
     return cues
+
+
+def normalize_subtitle_text(text: str) -> str:
+    """Chuan hoa khoang trang va ky tu trang de so sanh phu de."""
+    if not text:
+        return ""
+    return " ".join(text.strip().split())
+
+
+def merge_segment_cues(
+    segments: Sequence[Any],
+    *,
+    similarity: float = 0.85,
+    max_gap: float = 0.5,
+    min_duration: float = 0.3,
+) -> list[Cue]:
+    """Gop cac phan doan nhan dang AI thanh danh sach Cue hoan chinh.
+
+    Quy tac:
+    - Bo qua text rong hoac uncertain khong co text.
+    - Chuan hoa khoang trang va dau cau thua.
+    - Sap xep theo start, end.
+    - Gop cac phan doan lien ke / chong lan co cung noi dung (ke ca o ranh gioi chunk).
+    - Bao dam thoi luong toi thieu min_duration.
+    """
+    valid_items: list[tuple[float, float, str, float]] = []
+    for s in segments:
+        if isinstance(s, Cue):
+            text = s.text
+            start = s.start
+            end = s.end
+            score = 1.0
+        elif isinstance(s, dict):
+            text = s.get("text", "")
+            start = float(s.get("start", 0.0))
+            end = float(s.get("end", 0.0))
+            score = float(s.get("confidence", 1.0))
+            if s.get("uncertain") and not str(text).strip():
+                continue
+        else:
+            text = getattr(s, "text", "")
+            start = float(getattr(s, "start", 0.0))
+            end = float(getattr(s, "end", 0.0))
+            score = float(getattr(s, "confidence", 1.0))
+            if getattr(s, "uncertain", False) and not str(text).strip():
+                continue
+
+        clean = normalize_subtitle_text(str(text))
+        if not clean:
+            continue
+        valid_items.append((start, end, clean, score))
+
+    if not valid_items:
+        return []
+
+    # Sap xep theo thoi gian bat dau, roi den ket thuc
+    valid_items.sort(key=lambda item: (item[0], item[1]))
+
+    merged: list[dict[str, Any]] = []
+    for start, end, text, score in valid_items:
+        if not merged:
+            merged.append({
+                "start": start,
+                "end": max(end, start + min_duration),
+                "text": text,
+                "score": score,
+            })
+            continue
+
+        prev = merged[-1]
+        gap = start - prev["end"]
+        is_temporally_close = gap <= max(0.0, float(max_gap)) or start <= prev["end"]
+
+        if is_temporally_close and (
+            _similar(text, prev["text"], similarity)
+            or _same_caption_version(text, prev["text"], similarity)
+        ):
+            prev["end"] = max(prev["end"], end)
+            if _better_read(text, score, prev["text"], prev["score"]):
+                prev["text"] = text
+                prev["score"] = score
+        else:
+            merged.append({
+                "start": start,
+                "end": max(end, start + min_duration),
+                "text": text,
+                "score": score,
+            })
+
+    cues: list[Cue] = [
+        Cue(start=item["start"], end=item["end"], text=item["text"])
+        for item in merged
+        if item["text"]
+    ]
+    return _merge_exact_repeats(cues, max_gap=max_gap)

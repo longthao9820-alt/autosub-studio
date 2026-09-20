@@ -9,12 +9,12 @@ import sys
 import threading
 import wave
 from array import array
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from .ffmpeg import CancelToken, FFmpeg, FFmpegError, MediaInfo
+from .ffmpeg import CancelledError, CancelToken, FFmpeg, FFmpegError, MediaInfo
 from .gpu import best_hw_encoder, video_encoder_args
 from .paths import fonts_dir
 
@@ -978,3 +978,146 @@ def chunk_sequence(items: Sequence[Any], chunk_size: int) -> list[list[Any]]:
     """Chia mot danh sach thanh cac doan nho co do dai toi da chunk_size."""
     size = max(1, int(chunk_size))
     return [list(items[i : i + size]) for i in range(0, len(items), size)]
+
+
+def extract_video_chunks(
+    ff: FFmpeg,
+    video: str | Path,
+    out_dir_parent: str | Path,
+    *,
+    chunk_duration: float = 30.0,
+    carryover: float = 2.0,
+    fps: float = 2.0,
+    region: Sequence[int] | None = None,
+    total_duration: float = 0.0,
+    token: CancelToken | None = None,
+    on_progress: Callable[[float], None] | None = None,
+) -> Iterator[tuple[int, float, float, list[tuple[float, Path]], Path]]:
+    """Trich xuat khung hinh video theo tung cua so/chunk thoi gian ngan voi FFmpeg.
+
+    Dac diem:
+    - Cat va crop theo vung region truc tiep trong FFmpeg.
+    - Iterator tung chunk mot, khong giai ma toan bo video dai truoc.
+    - Ho tro carryover o ranh gioi chunk de khong bi cat doi phu de.
+    - Quan ly thu muc tam gioi han (toi da 2 thu muc chunk xen ke).
+    - Tra ve (chunk_index, start_time, end_time, list[(timestamp, frame_path)], chunk_dir).
+    """
+    parent = Path(out_dir_parent)
+    parent.mkdir(parents=True, exist_ok=True)
+
+    span = float(total_duration) if total_duration and total_duration > 0 else 0.0
+    if span <= 0:
+        try:
+            span = float(ff.probe(video).duration)
+        except Exception:
+            span = 0.0
+
+    chunk_dur = max(5.0, float(chunk_duration))
+    c_over = max(0.0, min(chunk_dur * 0.5, float(carryover)))
+    gap = 1.0 / max(0.2, float(fps))
+    select_gap = max(0.001, gap - min(0.005, gap * 0.025))
+
+    crop = _crop_filter(region)
+
+    chunk_idx = 0
+    current_start = 0.0
+
+    while True:
+        if token is not None and token.cancelled:
+            raise CancelledError("Trich xuat video bi huy.")
+        if span > 0 and current_start >= span:
+            break
+
+        actual_start = max(0.0, current_start - (c_over if chunk_idx > 0 else 0.0))
+        if span > 0:
+            actual_end = min(span, current_start + chunk_dur)
+            actual_length = max(0.05, actual_end - actual_start)
+        else:
+            actual_length = chunk_dur + (c_over if chunk_idx > 0 else 0.0)
+            actual_end = actual_start + actual_length
+
+        chunk_dir = parent / f"chunk_{chunk_idx % 2}"
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        for old in chunk_dir.glob("frame_*.png"):
+            old.unlink(missing_ok=True)
+
+        filters = [
+            f"select=isnan(prev_selected_t)+gte(t-prev_selected_t\\,{select_gap:.4f})",
+            "showinfo",
+        ]
+        if crop:
+            filters.insert(0, crop)
+
+        lines: list[str] = []
+        args = [
+            "-ss",
+            f"{actual_start:.3f}",
+            "-i",
+            str(video),
+            "-t",
+            f"{actual_length:.3f}",
+            "-vf",
+            ",".join(filters),
+            "-vsync",
+            "0",
+            str(chunk_dir / "frame_%06d.png"),
+        ]
+
+        if token is not None and token.cancelled:
+            raise CancelledError("Trich xuat video bi huy.")
+
+        try:
+            ff.run(
+                args,
+                token=token,
+                on_log=lines.append,
+            )
+        except Exception as exc:
+            if token is not None and token.cancelled:
+                raise CancelledError("Trich xuat video bi huy.") from exc
+            if chunk_idx > 0:
+                break
+            raise
+
+        if token is not None and token.cancelled:
+            raise CancelledError("Trich xuat video bi huy.")
+
+        paths = sorted(chunk_dir.glob("frame_*.png"))
+        if not paths:
+            break
+
+        stamps = _collect_pts(lines)
+        if len(stamps) != len(paths):
+            stamps = [i * gap for i in range(len(paths))]
+
+        absolute_timed: list[tuple[float, Path]] = []
+        for s_time, p in zip(stamps, paths, strict=False):
+            t = (
+                s_time
+                if (s_time >= actual_start and actual_start > 0.5)
+                else (actual_start + s_time)
+            )
+            absolute_timed.append((t, p))
+
+        if on_progress and span > 0:
+            on_progress(min(1.0, actual_end / span))
+
+        yield chunk_idx, actual_start, actual_end, absolute_timed, chunk_dir
+
+        if token is not None and token.cancelled:
+            raise CancelledError("Trich xuat video bi huy.")
+
+        current_start += chunk_dur
+        chunk_idx += 1
+        if span <= 0 and len(paths) == 0:
+            break
+
+
+def cleanup_chunk_dirs(parent_dir: str | Path) -> None:
+    """Don dep cac thu muc chunk tam thoi."""
+    p = Path(parent_dir)
+    if not p.is_dir():
+        return
+    for item in p.glob("chunk_*"):
+        if item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
