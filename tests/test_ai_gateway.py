@@ -33,12 +33,20 @@ from autosub_studio.ui.panels import SettingsPanel, TranslatePanel
 
 
 class FakeResponse:
-    def __init__(self, data: dict[str, Any] | str, status: int = 200) -> None:
+    def __init__(
+        self,
+        data: dict[str, Any] | str | bytes,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.status = status
+        self.headers = headers or {}
         if isinstance(data, dict):
             self._raw = json.dumps(data).encode("utf-8")
-        else:
+        elif isinstance(data, str):
             self._raw = data.encode("utf-8")
+        else:
+            self._raw = data
 
     def read(self) -> bytes:
         return self._raw
@@ -169,6 +177,7 @@ class TestEndpointAndPayload:
         assert body["model"] == "my-reasoning-model"
         assert body["reasoning_effort"] == "medium"
         assert body["messages"] == [{"role": "user", "content": "Hello"}]
+        assert body["stream"] is False
 
     def test_chat_completion_no_thinking(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured_requests: list[urllib.request.Request] = []
@@ -194,6 +203,216 @@ class TestEndpointAndPayload:
 
         body = json.loads(req.data.decode("utf-8"))
         assert "reasoning_effort" not in body
+        assert body["stream"] is False
+
+
+class TestAIGatewayResponseHandling:
+    def test_stream_false_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[urllib.request.Request] = []
+
+        def mock_urlopen(req: urllib.request.Request, timeout: float = 60.0):
+            captured.append(req)
+            return FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+        reply = chat_completion(
+            "http://localhost:8000/v1",
+            "key",
+            model="sub",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        assert reply == "ok"
+        assert len(captured) == 1
+        body = json.loads(captured[0].data.decode("utf-8"))
+        assert body.get("stream") is False
+        assert body["model"] == "sub"
+        assert body["messages"] == [{"role": "user", "content": "hi"}]
+
+    def test_live_sse_shape_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sse_data = (
+            ": ping\r\n"
+            "event: message\r\n"
+            'data: {"id":"c1","choices":[{"delta":{"role":"assistant","content":"Xin"}}]}\r\n\r\n'
+            ": keepalive\r\n"
+            'data: {"id":"c2","choices":[{"delta":{"content":" chào "}}]}\r\n\r\n'
+            'data: {"id":"c3","choices":[{"message":{"content":"thế giới"}}]}\r\n\r\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\r\n\r\n'
+            "data: [DONE]\r\n"
+        )
+
+        def mock_urlopen(req: urllib.request.Request, timeout: float = 60.0):
+            return FakeResponse(
+                sse_data,
+                status=200,
+                headers={"Content-Type": "text/event-stream; charset=utf-8"},
+            )
+
+        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+        res = chat_completion(
+            "http://localhost:8000/v1",
+            "key",
+            model="sub",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        assert res == "Xin chào thế giới"
+
+    def test_content_list_blocks(self) -> None:
+        json_data = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Khối một. "},
+                            {"type": "output_text", "output_text": "Khối hai."},
+                        ],
+                    }
+                }
+            ]
+        }
+        res = ai_gateway.parse_chat_response(json.dumps(json_data), "application/json")
+        assert res == "Khối một. Khối hai."
+
+        sse_list_data = (
+            'data: {"choices":[{"delta":{"content":[{"type":"text","text":"Chunk A "}]}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":[{"output_text":"Chunk B"}]}}]}\n\n'
+            "data: [DONE]\n"
+        )
+        res_sse = ai_gateway.parse_chat_response(sse_list_data, "text/event-stream")
+        assert res_sse == "Chunk A Chunk B"
+
+    def test_bom_json_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        raw_with_bom = (
+            b'\xef\xbb\xbf{"choices": [{"message": {"content": "Ph\xe1\xba\xa3n h\xe1\xbb\x93i"}}]}'
+        )
+
+        def mock_urlopen(req: urllib.request.Request, timeout: float = 60.0):
+            return FakeResponse(raw_with_bom, headers={"Content-Type": "application/json"})
+
+        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+        res = chat_completion(
+            "http://localhost:8000/v1",
+            "key",
+            model="sub",
+            messages=[{"role": "user", "content": "test"}],
+        )
+        assert res == "Phản hồi"
+
+    def test_explicit_empty_content(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def mock_urlopen_empty(req: urllib.request.Request, timeout: float = 60.0):
+            return FakeResponse({
+                "choices": [{"message": {"role": "assistant", "content": ""}}]
+            })
+
+        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen_empty)
+        res1 = chat_completion(
+            "http://localhost:8000/v1",
+            "key",
+            model="sub",
+            messages=[{"role": "user", "content": "read image"}],
+        )
+        assert res1 == ""
+
+        res2 = ai_gateway.parse_chat_response(
+            json.dumps({"choices": [{"message": {"role": "assistant", "content": []}}]})
+        )
+        assert res2 == ""
+
+        res3 = ai_gateway.parse_chat_response(
+            json.dumps({
+                "choices": [
+                    {"message": {"role": "assistant", "content": [{"type": "text", "text": ""}]}}
+                ]
+            })
+        )
+        assert res3 == ""
+
+        sse_empty = (
+            'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}\n\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+            "data: [DONE]\n"
+        )
+        res4 = ai_gateway.parse_chat_response(sse_empty, "text/event-stream")
+        assert res4 == ""
+
+        with pytest.raises(AIGatewayError) as exc_missing:
+            ai_gateway.parse_chat_response(
+                json.dumps({"choices": [{"message": {"role": "assistant"}}]})
+            )
+        assert "Không tìm thấy nội dung" in str(exc_missing.value)
+
+    def test_malformed_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        html_payload = (
+            "<html><head><title>502 Bad Gateway</title></head>"
+            "<body>Bearer sk-super-secret-12345</body></html>"
+        )
+
+        def mock_urlopen_html(req: urllib.request.Request, timeout: float = 60.0):
+            return FakeResponse(html_payload, headers={"Content-Type": "text/html; charset=utf-8"})
+
+        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen_html)
+        with pytest.raises(AIGatewayError) as exc_html:
+            chat_completion(
+                "http://localhost:8000/v1",
+                "key",
+                model="sub",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        err_str = str(exc_html.value)
+        assert "Content-Type: text/html" in err_str
+        assert "sk-super-secret-12345" not in err_str
+        assert "Bearer ***" in err_str or "sk-***" in err_str
+
+        with pytest.raises(AIGatewayError) as exc_json:
+            ai_gateway.parse_chat_response("{invalid-json", "application/json")
+        assert "không đúng định dạng JSON" in str(exc_json.value)
+
+        with pytest.raises(AIGatewayError) as exc_sse:
+            ai_gateway.parse_chat_response("data: not-json", "text/event-stream")
+        assert "SSE" in str(exc_sse.value)
+
+    def test_endpoint_model_suffix(self) -> None:
+        assert (
+            normalize_chat_endpoint("http://localhost:8000/models")
+            == "http://localhost:8000/v1/chat/completions"
+        )
+        assert (
+            normalize_chat_endpoint("http://localhost:8000/v1/models")
+            == "http://localhost:8000/v1/chat/completions"
+        )
+        assert (
+            normalize_chat_endpoint("http://localhost:8000/models/")
+            == "http://localhost:8000/v1/chat/completions"
+        )
+        assert (
+            normalize_chat_endpoint("http://localhost:8000/v1/models/")
+            == "http://localhost:8000/v1/chat/completions"
+        )
+        assert (
+            normalize_chat_endpoint("http://localhost:8000/chat/completions")
+            == "http://localhost:8000/chat/completions"
+        )
+        assert (
+            normalize_chat_endpoint("http://localhost:8000/v1/chat/completions")
+            == "http://localhost:8000/v1/chat/completions"
+        )
+
+        assert (
+            normalize_models_endpoint("http://localhost:8000/models")
+            == "http://localhost:8000/v1/models"
+        )
+        assert (
+            normalize_models_endpoint("http://localhost:8000/v1/models")
+            == "http://localhost:8000/v1/models"
+        )
+        assert (
+            normalize_models_endpoint("http://localhost:8000/chat/completions")
+            == "http://localhost:8000/models"
+        )
+        assert (
+            normalize_models_endpoint("http://localhost:8000/v1/chat/completions")
+            == "http://localhost:8000/v1/models"
+        )
 
 
 # ========================================================== 3. Connection & Model Checks

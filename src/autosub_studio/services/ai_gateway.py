@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -31,10 +32,14 @@ def normalize_chat_endpoint(endpoint: str) -> str:
     - https://api.openai.com/v1/
     - https://api.openai.com/v1/chat/completions
     - http://localhost:8000/chat/completions
+    - http://localhost:8000/models
+    - http://localhost:8000/v1/models
     """
     ep = (endpoint or "").strip().rstrip("/")
     if not ep:
         return ""
+    if ep.endswith("/models"):
+        ep = ep[:-7].rstrip("/")
     if ep.endswith("/chat/completions"):
         return ep
     if ep.endswith("/v1"):
@@ -62,6 +67,187 @@ def resolve_model(alias: str, settings: Settings) -> tuple[str, str]:
     return model_name, thinking
 
 
+def _sanitize_error_text(text: str, max_len: int = 120) -> str:
+    """Khu cac thong tin nhay cam va gioi han do dai cua chuoi loi."""
+    if not text:
+        return ""
+    sanitized = re.sub(r"(Bearer\s+)[^\s'\"]+", r"\1***", text)
+    sanitized = re.sub(r"sk-[a-zA-Z0-9_\-]{8,}", "sk-***", sanitized)
+    sanitized = " ".join(sanitized.split())
+    if len(sanitized) > max_len:
+        return sanitized[:max_len] + "..."
+    return sanitized
+
+
+def _sanitize_content_type(content_type: str) -> str:
+    """Chuan hoa Content-Type header."""
+    if not content_type:
+        return ""
+    ct = content_type.split(";")[0].strip().lower()
+    if re.match(r"^[a-z0-9_.-]+/[a-z0-9_.+-]+$", ct):
+        return ct
+    return ct[:50]
+
+
+def _extract_text_blocks(content: Any) -> str:
+    """Trich xuat chu tu content (chuoi hoac danh sach khoi text / output_text)."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                txt = item.get("text")
+                if txt is None:
+                    txt = item.get("output_text")
+                if txt is not None:
+                    parts.append(str(txt))
+            elif item is not None:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content)
+
+
+def _parse_sse_stream(text: str) -> tuple[bool, str]:
+    """Parse luong Server-Sent Events (SSE) khi AI Gateway bo qua stream=False."""
+    clean_text = text.lstrip("\ufeff")
+    lines = clean_text.splitlines()
+    accumulated_parts: list[str] = []
+    found_choice = False
+
+    for line in lines:
+        clean_line = line.strip()
+        if not clean_line:
+            continue
+        if clean_line.startswith(":"):
+            # Comment SSE bo qua
+            continue
+        if clean_line.startswith(("event:", "id:", "retry:")):
+            # Metadata event bo qua
+            continue
+        if not clean_line.startswith("data:"):
+            continue
+
+        payload = clean_line[5:].strip()
+        if not payload:
+            continue
+        if payload == "[DONE]":
+            break
+
+        try:
+            chunk = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+
+        if not isinstance(chunk, dict):
+            continue
+
+        if "error" in chunk:
+            err_obj = chunk["error"]
+            if isinstance(err_obj, dict):
+                msg = str(err_obj.get("message", err_obj))
+            else:
+                msg = str(err_obj)
+            raise AIGatewayError(f"AI Gateway báo lỗi: {msg}")
+
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+
+        found_choice = True
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            target: dict[str, Any] | None = None
+            if "delta" in choice and isinstance(choice["delta"], dict):
+                target = choice["delta"]
+            elif "message" in choice and isinstance(choice["message"], dict):
+                target = choice["message"]
+
+            if target is not None:
+                if "content" in target:
+                    extracted = _extract_text_blocks(target["content"])
+                    if extracted:
+                        accumulated_parts.append(extracted)
+                elif "output_text" in target:
+                    extracted = str(target["output_text"])
+                    if extracted:
+                        accumulated_parts.append(extracted)
+
+    if found_choice:
+        return True, "".join(accumulated_parts)
+    return False, ""
+
+
+def parse_chat_response(raw: str, content_type: str = "") -> str:
+    """Parse phan hoi Chat Completions (ho tro ca JSON chuan va SSE fallback)."""
+    clean_text = (raw or "").lstrip("\ufeff").strip()
+    if not clean_text:
+        raise AIGatewayError("Phản hồi từ AI Gateway rỗng.")
+
+    sanitized_ct = _sanitize_content_type(content_type)
+    is_sse_ct = "event-stream" in sanitized_ct
+    is_sse_text = (
+        clean_text.startswith("data:")
+        or "\ndata:" in clean_text
+        or "\rdata:" in clean_text
+    )
+
+    # Uu tien thu parse SSE neu header hoac text co dau hieu SSE
+    if is_sse_ct or is_sse_text:
+        ok, sse_result = _parse_sse_stream(clean_text)
+        if ok:
+            return sse_result
+        if is_sse_ct:
+            ct_desc = f" (Content-Type: {sanitized_ct})" if sanitized_ct else ""
+            bounded = _sanitize_error_text(clean_text)
+            raise AIGatewayError(f"Phản hồi SSE từ AI Gateway không hợp lệ{ct_desc}: {bounded}")
+
+    # Thu parse JSON chuan
+    try:
+        data = json.loads(clean_text)
+    except json.JSONDecodeError as exc:
+        # Fallback SSE neu chua thu truoc do
+        if not is_sse_ct and not is_sse_text:
+            ok, sse_result = _parse_sse_stream(clean_text)
+            if ok:
+                return sse_result
+
+        ct_desc = f" (Content-Type: {sanitized_ct})" if sanitized_ct else ""
+        bounded = _sanitize_error_text(clean_text)
+        err_msg = f"Phản hồi từ AI Gateway không đúng định dạng JSON{ct_desc}: {bounded}"
+        raise AIGatewayError(err_msg) from exc
+
+    if not isinstance(data, dict):
+        ct_desc = f" (Content-Type: {sanitized_ct})" if sanitized_ct else ""
+        bounded = _sanitize_error_text(clean_text)
+        err_msg = f"Phản hồi từ AI Gateway không đúng định dạng JSON{ct_desc}: {bounded}"
+        raise AIGatewayError(err_msg)
+
+    if "error" in data:
+        err_obj = data["error"]
+        msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+        raise AIGatewayError(f"AI Gateway báo lỗi: {msg}")
+
+    choices = data.get("choices")
+    if not choices or not isinstance(choices, list):
+        raise AIGatewayError("Phản hồi từ AI Gateway thiếu trường 'choices'.")
+
+    first = choices[0]
+    if isinstance(first, dict):
+        msg_obj = first.get("message")
+        if not isinstance(msg_obj, dict) and "delta" in first and isinstance(first["delta"], dict):
+            msg_obj = first["delta"]
+        if isinstance(msg_obj, dict) and "content" in msg_obj:
+            return _extract_text_blocks(msg_obj["content"])
+
+    raise AIGatewayError("Không tìm thấy nội dung phản hồi từ AI Gateway.")
+
+
 def chat_completion(
     endpoint: str,
     api_key: str,
@@ -82,6 +268,7 @@ def chat_completion(
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
+        "stream": False,
     }
     clean_thinking = (thinking or "").strip().lower()
     if clean_thinking and clean_thinking not in ("none", "off"):
@@ -104,11 +291,22 @@ def chat_completion(
 
     try:
         with urllib.request.urlopen(req, timeout=valid_timeout) as resp:
-            raw = resp.read().decode("utf-8")
+            content_type = ""
+            resp_headers = getattr(resp, "headers", None)
+            if resp_headers:
+                if hasattr(resp_headers, "get"):
+                    content_type = resp_headers.get("Content-Type", "") or ""
+                elif hasattr(resp_headers, "get_content_type"):
+                    content_type = resp_headers.get_content_type() or ""
+            raw_bytes = resp.read()
+            if isinstance(raw_bytes, str):
+                raw = raw_bytes
+            else:
+                raw = raw_bytes.decode("utf-8-sig", errors="replace")
     except urllib.error.HTTPError as exc:
         err_body = ""
         with contextlib.suppress(Exception):
-            err_body = exc.read().decode("utf-8")
+            err_body = exc.read().decode("utf-8", errors="replace")
         msg = exc.reason
         with contextlib.suppress(Exception):
             parsed = json.loads(err_body)
@@ -120,25 +318,12 @@ def chat_completion(
         raise AIGatewayError(f"Không thể kết nối tới AI Gateway: {exc.reason}") from exc
     except TimeoutError as exc:
         raise AIGatewayError("Hết thời gian chờ phản hồi từ AI Gateway (timeout).") from exc
+    except AIGatewayError:
+        raise
     except Exception as exc:
         raise AIGatewayError(f"Lỗi gọi AI Gateway: {exc}") from exc
 
-    try:
-        res_json = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise AIGatewayError("Phản hồi từ AI Gateway không đúng định dạng JSON.") from exc
-
-    choices = res_json.get("choices") if isinstance(res_json, dict) else None
-    if not choices or not isinstance(choices, list):
-        raise AIGatewayError("Phản hồi từ AI Gateway thiếu trường 'choices'.")
-    first = choices[0]
-    if isinstance(first, dict):
-        msg_obj = first.get("message")
-        if isinstance(msg_obj, dict):
-            content = msg_obj.get("content")
-            if content is not None:
-                return str(content)
-    raise AIGatewayError("Không tìm thấy nội dung phản hồi từ AI Gateway.")
+    return parse_chat_response(raw, content_type=content_type)
 
 
 def test_connection(
