@@ -17,13 +17,13 @@ from autosub_studio.version import APP_NAME, APP_VERSION, ORG_NAME, __version__
 
 
 class TestVersionConsistency:
-    """Kiem tra tinh nhat quan cua phien ban trung tam 2.0.0."""
+    """Kiem tra tinh nhat quan cua phien ban trung tam 2.0.1."""
 
     def test_version_constants(self):
-        assert APP_VERSION == "2.0.0"
-        assert __version__ == "2.0.0"
-        assert autosub_studio.APP_VERSION == "2.0.0"
-        assert autosub_studio.__version__ == "2.0.0"
+        assert APP_VERSION == "2.0.1"
+        assert __version__ == "2.0.1"
+        assert autosub_studio.APP_VERSION == "2.0.1"
+        assert autosub_studio.__version__ == "2.0.1"
         assert APP_NAME == "AutoSub Studio"
         assert ORG_NAME == "AutoSubStudio"
 

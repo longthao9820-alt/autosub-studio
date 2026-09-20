@@ -1,4 +1,4 @@
-AUTOSUB STUDIO 2.0.0  -  BAN CHAY DOC LAP
+AUTOSUB STUDIO 2.0.1  -  BAN CHAY DOC LAP
 =========================================
 
 Thu muc nay da co san moi thu: FFmpeg, mo hinh doc chu tren hinh
