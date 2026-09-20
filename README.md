@@ -15,9 +15,7 @@ số. Bấm **More info** → **Run anyway**.
 Muốn mở nhanh hơn về sau: nhấp chuột phải vào `AutoSubStudio.exe` → **Send to** →
 **Desktop (create shortcut)**.
 
-**Không cần cài đặt phức tạp.** Bản đóng gói chính thức đi kèm sẵn FFmpeg, mô hình nhận dạng giọng nói
-(`faster-whisper-small`), mô hình đọc chữ trên hình (PP-OCR), runtime giọng đọc Piper Local (`_internal\piper\`),
-và các thư viện tăng tốc GPU.
+**Không cần cài đặt phức tạp.** Bản đóng gói chính thức đi kèm sẵn FFmpeg, mô hình đọc chữ trên hình (PP-OCR), runtime giọng đọc Piper Local (`_internal\piper\`), và các thư viện tăng tốc GPU. Mô hình nhận dạng giọng nói ASR (`faster-whisper`) được tách khỏi bộ cài để đảm bảo dung lượng phát hành <2 GiB; mô hình được tự động tải về thư mục `Data\models\asr\` khi dùng lần đầu, hoặc tự động chuyển an toàn từ bản V1 cũ sang.
 
 ---
 
@@ -79,7 +77,7 @@ AI Gateway cho phép kết nối các mô hình AI ngôn ngữ lớn theo chuẩ
 
 ### Bước 1: Tách phụ đề (B1)
 
-- **Tách bằng giọng nói (ASR):** Sử dụng Faster-Whisper chạy trực tiếp trên máy (CPU hoặc GPU). Model mặc định kèm theo là `small`, nhận dạng chuẩn xác kèm mốc thời gian từng từ.
+- **Tách bằng giọng nói (ASR):** Sử dụng Faster-Whisper chạy trực tiếp trên máy (CPU hoặc GPU). Mô hình mặc định là `small`, lưu bền vững trong `Data\models\asr\`. Lần đầu sử dụng sẽ tự động tải về; các lần sau hoặc khi mở lại/offline sẽ chạy trực tiếp từ đĩa không cần mạng.
 - **Tách bằng chữ trên hình (OCR):**
   - Dành cho video có phụ đề cứng (hardsub).
   - Vùng nhận dạng trực quan tại màn hình *Screen Edit* với khung chữ nhật điều chỉnh linh hoạt.
@@ -168,9 +166,10 @@ Bản đóng gói hoạt động ở chế độ di động (Portable), toàn b�
 | `Data\config\config.json` | Cấu hình tham số và các profile cấu hình chung |
 | `Data\config\render_presets.json` | Các mẫu cấu hình kết xuất video (Screen Render Presets) |
 | `Data\config\secrets.dat` | Khóa API được mã hóa an toàn theo tài khoản Windows |
+| `Data\models\asr\` | Các mô hình nhận dạng giọng nói (Whisper) đã tải hoặc chuyển từ bản cũ |
 | `Data\models\piper\` | Các mô hình giọng đọc offline đã tải |
 | `Data\config\logs\crash.log` | Nhật ký sự cố khi xảy ra lỗi ngoài ý muốn |
-| `_internal\` | FFmpeg, runtime Piper, mô hình ASR và thư viện GPU |
+| `_internal\` | FFmpeg, runtime Piper, mô hình OCR và thư viện GPU |
 
 Khi chạy từ mã nguồn lập trình (không dùng bản đóng gói), dữ liệu lưu tại thư mục người dùng:
 `Documents\AutoSubStudio\` và `AppData\Roaming\AutoSubStudio\`.
@@ -180,12 +179,13 @@ Khi chạy từ mã nguồn lập trình (không dùng bản đóng gói), dữ 
 ## 6. Yêu cầu kết nối mạng
 
 - **Không cần Internet (chạy hoàn toàn offline):**
-  - Nhận dạng giọng nói (Whisper).
+  - Nhận dạng giọng nói (Whisper) khi mô hình đã có trong `Data\models\asr\`.
   - Đọc chữ trên hình ảnh (OCR).
   - Tách nhạc nền cơ bản.
   - Lồng tiếng với Local Voice (Piper Local) khi mô hình đã có trên máy.
   - Render và xuất video phụ đề cứng.
 - **Cần kết nối Internet:**
+  - Tải mô hình nhận dạng giọng nói (Whisper) lần đầu tiên (tự động lưu vào `Data\models\asr\`).
   - Dịch phụ đề bằng Google Dịch hoặc AI Gateway.
   - Tải mô hình giọng đọc Piper về máy lần đầu tiên.
   - Kiểm tra cập nhật phiên bản mới.
@@ -202,9 +202,10 @@ assets\ffmpeg\ffmpeg.exe
 assets\ffmpeg\ffprobe.exe
 assets\piper\piper.exe            # Tải từ https://github.com/rhasspy/piper/releases
 assets\piper\espeak-ng-data\      # Đi kèm trong gói Piper Windows release
-assets\models\faster-whisper-small\
+assets\ocr\*.onnx                 # Mô hình PP-OCRv4
 assets\cuda\*.dll
 ```
+*(Lưu ý: Mô hình ASR không được nhúng vào bản đóng gói để giữ gói phát hành GitHub Release <2 GiB; người dùng tải về qua `Data\models\asr\` khi dùng).*
 
 Lệnh thực hiện đóng gói trong PowerShell:
 

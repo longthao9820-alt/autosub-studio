@@ -67,11 +67,10 @@ def _check_asr(settings: Settings) -> list[CheckResult]:
     if not asr.is_available():
         return [CheckResult("Nhan dang giong noi", FAIL, asr.install_hint())]
     source, local = asr.resolve_model_source(settings.asr_model, settings.model_dir)
-    bundled = asr.bundled_model_dirs()
     if local and Path(source).is_dir():
         size = sum(f.stat().st_size for f in Path(source).rglob("*") if f.is_file())
         detail = (
-            f"Model kem theo: {Path(source).name} ({human_size(size)})\n"
+            f"Model '{Path(source).name}' ({human_size(size)}) da san sang tren may.\n"
             f"         Chay duoc ngay, khong can Internet."
         )
         return [CheckResult("Nhan dang giong noi", OK, detail)]
@@ -81,13 +80,12 @@ def _check_asr(settings: Settings) -> list[CheckResult]:
                 "Nhan dang giong noi", OK, f"Model '{source}' da co trong bo nho dem tren may."
             )
         ]
-    names = ", ".join(p.name for p in bundled) or "khong co"
     return [
         CheckResult(
             "Nhan dang giong noi",
             WARN,
-            f"Model '{settings.asr_model}' chua co san (model kem theo: {names}).\n"
-            "         Lan chay dau se tai ve, buoc nay can Internet.",
+            f"Model '{settings.asr_model}' chua cai dat nhung co the tu dong tai ve khi su dung.\n"
+            f"         Luu tai Data/models/asr, lan chay dau can ket noi Internet.",
         )
     ]
 
@@ -353,9 +351,15 @@ def _deep_check_tts(work: Path) -> CheckResult:
 
 
 def _deep_check_asr(ff: FFmpeg, work: Path, settings: Settings) -> CheckResult:
-    """Nhan dang lai cau thu bang model Whisper kem theo."""
+    """Nhan dang lai cau thu bang model Whisper."""
     if not asr.is_available():
         return CheckResult("Chay thu nhan dang giong noi", FAIL, asr.install_hint())
+    if not asr.model_is_local(settings.asr_model, settings.model_dir):
+        return CheckResult(
+            "Chay thu nhan dang giong noi",
+            WARN,
+            f"Bo qua: model '{settings.asr_model}' chua duoc tai ve may de chay thu.",
+        )
     ready, _ = local_voice.piper_runtime_ready()
     manager = local_voice.get_default_manager()
     catalog = local_voice.list_catalog()

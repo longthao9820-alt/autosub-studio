@@ -57,7 +57,7 @@ from ..providers.local_voice import (
 )
 from ..services import gpu
 from ..services.ffmpeg import CancelToken, FFmpeg, FFmpegError
-from ..services.paths import app_root, bundled_dir, ensure_workspace, safe_name
+from ..services.paths import app_root, bundled_dir, ensure_workspace, migrate_v1_models, safe_name
 from ..services.presets import PresetManager
 from ..services.settings import Settings, SubtitleStyle
 from ..services.tasks import CANCELLED, DONE, PENDING, RUNNING, TaskContext, TaskManager
@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
             if not existing.styleSheet():
                 existing.setStyleSheet(get_qss())
         self.settings = Settings.load()
+        migrated_models = migrate_v1_models()
         ensure_workspace(self.settings.workspace)
         self.db = Database(Path(self.settings.workspace) / "db" / "app.db")
         self.db.ensure_default_scripts()
@@ -203,6 +204,12 @@ class MainWindow(QMainWindow):
         self._preview_audio_output = QAudioOutput(self)
         self._preview_player.setAudioOutput(self._preview_audio_output)
         self._session_log: list[str] = []
+        if migrated_models:
+            names = ", ".join(m.name for m in migrated_models)
+            self._session_log.append(
+                f"Đã tự động chuyển {len(migrated_models)} mô hình ASR ({names}) "
+                "sang Data/models/asr/."
+            )
         if stale_ocr_freed:
             self._session_log.append(
                 f"Đã tự động dọn {stale_ocr_freed / (1024 * 1024):.1f} MB "

@@ -37,6 +37,7 @@ logger = logging.getLogger("package_release")
 DEFAULT_REPO = "longthao9820-alt/autosub-studio"
 EXCLUDED_DIR_NAMES = {"data", "__pycache__", ".git", ".pytest_cache", ".venv"}
 EXCLUDED_EXTENSIONS = {".part", ".tmp", ".log"}
+MAX_RELEASE_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB = 2,147,483,648 bytes
 
 
 def calculate_sha256(file_path: Path) -> str:
@@ -54,6 +55,13 @@ def should_include_path(rel_path: Path) -> bool:
     for excluded in EXCLUDED_DIR_NAMES:
         if excluded in parts_lower:
             return False
+    # Loai tru tuyet doi bat ky thu muc models nao trong _internal hoac o goc
+    if "_internal" in parts_lower and "models" in parts_lower:
+        idx_int = parts_lower.index("_internal")
+        if "models" in parts_lower[idx_int:]:
+            return False
+    if parts_lower and parts_lower[0] == "models":
+        return False
     return rel_path.suffix.lower() not in EXCLUDED_EXTENSIONS
 
 
@@ -163,6 +171,11 @@ def package_release(
     file_count = create_release_zip(source_dir, zip_path, compression=comp)
     file_size = zip_path.stat().st_size
     sha256_hash = calculate_sha256(zip_path)
+
+    if file_size >= MAX_RELEASE_BYTES:
+        raise ValueError(
+            f"Goi release vuot qua gioi han 2 GiB ({file_size} >= {MAX_RELEASE_BYTES} bytes)!"
+        )
 
     logger.info("Da dong goi %d tep vao %s (Size: %d bytes)", file_count, zip_path.name, file_size)
     logger.info("SHA256: %s", sha256_hash)

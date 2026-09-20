@@ -1,13 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Cau hinh dong goi cho PyInstaller - ban chay doc lap.
 
-Ban dong goi tu chua du moi thu de chay tren mot may Windows moi:
-  - FFmpeg va FFprobe  (thu muc 'ffmpeg')
-  - Model nhan dang giong noi (thu muc 'models')
-  - Thu vien CUDA de tang toc bang card do hoa NVIDIA (thu muc 'cuda')
-  - Model doc chu tren hinh (di kem thu vien rapidocr trong '_internal')
-Du lieu nguoi dung (cau hinh, du an) nam trong thu muc 'Data' canh tep chay,
-nen chep ca thu muc sang may khac la dung duoc ngay.
+# Ban dong goi tu chua du moi thu de chay tren mot may Windows moi:
+#   - FFmpeg va FFprobe  (thu muc 'ffmpeg')
+#   - Model nhan dang giong noi (tai ve Data/models/asr khi su dung, khong nhung truc tiep)
+#   - Thu vien CUDA de tang toc bang card do hoa NVIDIA (thu muc 'cuda')
+#   - Model doc chu tren hinh (di kem thu vien rapidocr va thu muc 'ocr')
+# Du lieu nguoi dung (cau hinh, du an, models) nam trong thu muc 'Data' canh tep chay,
+# nen chep ca thu muc sang may khac la dung duoc ngay.
 """
 
 from pathlib import Path
@@ -55,13 +55,6 @@ cuda_dir = ASSETS / "cuda"
 if cuda_dir.is_dir():
     for dll in sorted(cuda_dir.glob("*.dll")):
         binaries.append((str(dll), "cuda"))
-
-models_dir = ASSETS / "models"
-if models_dir.is_dir():
-    for model in sorted(p for p in models_dir.iterdir() if p.is_dir()):
-        for item in sorted(model.iterdir()):
-            if item.is_file() and item.suffix.lower() not in (".md", ".gitattributes"):
-                datas.append((str(item), f"models/{model.name}"))
 
 # Bo PP-OCRv4 Mobile tieng Trung dung cho che do "Nhanh Nhu NTS".
 ocr_dir = ASSETS / "ocr"

@@ -17,12 +17,9 @@ $missing = @()
 if (-not (Test-Path (Join-Path $assets "ffmpeg\ffmpeg.exe")))  { $missing += "assets\ffmpeg\ffmpeg.exe" }
 if (-not (Test-Path (Join-Path $assets "ffmpeg\ffprobe.exe"))) { $missing += "assets\ffmpeg\ffprobe.exe" }
 if (-not (Test-Path (Join-Path $assets "download\yt-dlp.exe"))) { $missing += "assets\download\yt-dlp.exe" }
-$modelDirs = @()
-if (Test-Path (Join-Path $assets "models")) {
-    $modelDirs = @(Get-ChildItem (Join-Path $assets "models") -Directory |
-        Where-Object { Test-Path (Join-Path $_.FullName "model.bin") })
-}
-if ($modelDirs.Count -eq 0) { $missing += "assets\models\<ten-model>\model.bin" }
+# ASR models (faster-whisper) duoc tach roi khoi ban dong goi de dam bao
+# goi phat hanh <2 GiB. Model se duoc tai ve Data\models\asr khi su dung.
+Write-Host "ASR models: tach roi khoi ban dong goi de dam bao <2 GiB (luu tai Data\models\asr khi dung)"
 $ocrModels = @(
     "ch_PP-OCRv4_det_infer.onnx",
     "ch_PP-OCRv4_rec_infer.onnx",
@@ -56,7 +53,7 @@ if ($missing.Count -gt 0) {
     $missing | ForEach-Object { Write-Warning "  - $_" }
     Write-Warning "Xem muc 'Dong goi lai' trong README.md de biet cach chuan bi."
 } else {
-    Write-Host "Se nhung: FFmpeg + model $($modelDirs.Name -join ', ')"
+    Write-Host "Se nhung: FFmpeg + OCR models (PP-OCRv4)"
 }
 
 # Ban chay portable luu du an ngay trong dist\AutoSubStudio\Data. Moi lan
@@ -143,11 +140,17 @@ start "" "AutoSubStudio.exe" --selftest-full
 New-Item -ItemType Directory -Force (Join-Path $out "Data") | Out-Null
 Restore-PortableData
 
+# Dam bao khong de sot model ASR trong _internal
+$internalModels = Join-Path $out "_internal\models"
+if (Test-Path $internalModels) {
+    Write-Warning "Phat hien _internal\models trong ban dong goi. Dang loai bo de giu dung luong <2 GiB..."
+    Remove-Item -Recurse -Force $internalModels
+}
+
 # --- Kiem tra ket qua -------------------------------------------------------
 $checks = @{
     "ffmpeg.exe"  = Join-Path $out "_internal\ffmpeg\ffmpeg.exe"
     "ffprobe.exe" = Join-Path $out "_internal\ffmpeg\ffprobe.exe"
-    "model AI"    = Join-Path $out "_internal\models"
     "OCR Nhanh Nhu NTS" = Join-Path $out "_internal\ocr\ch_PP-OCRv4_rec_infer.onnx"
     "thu vien CUDA" = Join-Path $out "_internal\cuda\cudnn64_9.dll"
     "yt-dlp" = Join-Path $out "_internal\download\yt-dlp.exe"
@@ -159,6 +162,11 @@ $checks = @{
 foreach ($name in $checks.Keys) {
     if (Test-Path $checks[$name]) { Write-Host "  [OK]   $name da duoc nhung" }
     else { Write-Warning "  [THIEU] $name khong co trong ban dong goi" }
+}
+if (-not (Test-Path $internalModels)) {
+    Write-Host "  [OK]   Model ASR da duoc loai tru khoi ban dong goi (<2 GiB)"
+} else {
+    Write-Warning "  [CANH BAO] Model ASR van con trong _internal\models"
 }
 
 $size = (Get-ChildItem $out -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB

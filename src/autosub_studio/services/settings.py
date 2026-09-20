@@ -434,6 +434,9 @@ class Settings:
                 if value and not Path(value).exists():
                     setattr(settings, field_name, "")
                     portable_paths_changed = True
+            if settings.model_dir and "_internal" in settings.model_dir:
+                settings.model_dir = ""
+                portable_paths_changed = True
         # Ket qua GPU chi duoc phep dung lai tren dung may da bam kiem tra.
         # Dinh danh nay khong do card va khong khoi tao CUDA, nen giao dien van
         # hien "Chua kiem tra" tren may moi cho den khi nguoi dung bam nut.

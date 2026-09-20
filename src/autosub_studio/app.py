@@ -59,8 +59,10 @@ def main() -> int:
         sys.path.insert(0, str(root))
     # Phai dang ky truoc khi nap bat ky thu vien nao dung CUDA.
     from .services.gpu import register_cuda_dlls
+    from .services.paths import migrate_v1_models
 
     register_cuda_dlls()
+    migrate_v1_models()
     flags = {arg.lstrip("-/").lower() for arg in sys.argv[1:]}
     if flags & {"selftest", "kiemtra", "selftest-full", "kiemtrasau"}:
         from .selftest import main as selftest_main

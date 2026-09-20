@@ -156,6 +156,88 @@ def free_space(path: str | Path) -> int:
         return 0
 
 
+def asr_models_dir() -> Path:
+    """Thu muc luu tru model ASR (faster-whisper) doc lap voi workspace/du an/cap nhat."""
+    env = os.environ.get("AUTOSUB_ASR_MODELS_DIR")
+    if env:
+        target = Path(env)
+    elif is_portable():
+        target = portable_data_dir() / "models" / "asr"
+    else:
+        target = app_root() / "Data" / "models" / "asr"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def migrate_v1_models(app_dir: Path | None = None) -> list[Path]:
+    """Chuyen an toan cac model ASR tu ban cu (_internal/models) sang Data/models/asr.
+
+    Dam bao:
+      - Khong chep lai neu model dich da ton tai hop le (repeat-safe)
+      - Chep qua thu muc tam va kiem tra toan ven truoc khi doi ten
+      - Giu nguyen ban goc cho den khi kiem tra toan ven thanh cong
+    """
+    root = (app_dir or app_root()).resolve()
+    old_models_dir = root / "_internal" / "models"
+    if not old_models_dir.is_dir():
+        old_models_dir = root / "models"
+        if not old_models_dir.is_dir():
+            return []
+
+    if app_dir is not None:
+        dest_base = root / "Data" / "models" / "asr"
+    else:
+        dest_base = asr_models_dir()
+    dest_base.mkdir(parents=True, exist_ok=True)
+
+    migrated: list[Path] = []
+    for item in sorted(old_models_dir.iterdir()):
+        if not item.is_dir():
+            continue
+        src_bin = item / "model.bin"
+        if not src_bin.is_file():
+            continue
+
+        dst_dir = dest_base / item.name
+        dst_bin = dst_dir / "model.bin"
+
+        # Kiem tra xem da ton tai hop le chua (repeat-safe, khong chep lai)
+        src_size = src_bin.stat().st_size
+        if dst_bin.is_file() and dst_bin.stat().st_size == src_size and src_size > 0:
+            continue
+
+        # Chep an toan qua thu muc tam, bao toan ban goc
+        tmp_dir = dest_base / f".tmp_migrate_{item.name}_{os.getpid()}"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            for sub_item in item.iterdir():
+                dst_sub = tmp_dir / sub_item.name
+                if sub_item.is_file():
+                    shutil.copy2(sub_item, dst_sub)
+                elif sub_item.is_dir():
+                    shutil.copytree(sub_item, dst_sub)
+
+            # Kiem tra toan ven sau khi chep
+            tmp_bin = tmp_dir / "model.bin"
+            if not tmp_bin.is_file() or tmp_bin.stat().st_size != src_size:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                continue
+
+            # Hoan tat: doi ten nguyen tu thu muc tam sang thu muc dich
+            if dst_dir.exists():
+                shutil.rmtree(dst_dir, ignore_errors=True)
+            tmp_dir.replace(dst_dir)
+            migrated.append(dst_dir)
+        except Exception:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return migrated
+
+
 def piper_models_dir() -> Path:
     """Thu muc luu tru model Piper doc lap voi workspace/du an/cap nhat."""
     env = os.environ.get("AUTOSUB_PIPER_MODELS_DIR")

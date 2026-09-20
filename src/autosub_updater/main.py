@@ -71,22 +71,91 @@ def verify_payload_layout(payload_dir: Path) -> bool:
     return has_exe or has_run or has_src
 
 
+def migrate_v1_models(app_root: Path) -> list[Path]:
+    """Chuyen an toan model ASR cu (_internal/models) sang Data/models/asr truoc khi thay the."""
+    old_models_dir = app_root / "_internal" / "models"
+    if not old_models_dir.is_dir():
+        old_models_dir = app_root / "models"
+        if not old_models_dir.is_dir():
+            return []
+
+    env = os.environ.get("AUTOSUB_ASR_MODELS_DIR")
+    dest_base = Path(env) if env else app_root / "Data" / "models" / "asr"
+    dest_base.mkdir(parents=True, exist_ok=True)
+
+    migrated: list[Path] = []
+    for item in sorted(old_models_dir.iterdir()):
+        if not item.is_dir():
+            continue
+        src_bin = item / "model.bin"
+        if not src_bin.is_file():
+            continue
+
+        dst_dir = dest_base / item.name
+        dst_bin = dst_dir / "model.bin"
+
+        src_size = src_bin.stat().st_size
+        if dst_bin.is_file() and dst_bin.stat().st_size == src_size and src_size > 0:
+            continue
+
+        tmp_dir = dest_base / f".tmp_migrate_{item.name}_{os.getpid()}"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            for sub_item in item.iterdir():
+                dst_sub = tmp_dir / sub_item.name
+                if sub_item.is_file():
+                    shutil.copy2(sub_item, dst_sub)
+                elif sub_item.is_dir():
+                    shutil.copytree(sub_item, dst_sub)
+
+            tmp_bin = tmp_dir / "model.bin"
+            if not tmp_bin.is_file() or tmp_bin.stat().st_size != src_size:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                continue
+
+            if dst_dir.exists():
+                shutil.rmtree(dst_dir, ignore_errors=True)
+            tmp_dir.replace(dst_dir)
+            migrated.append(dst_dir)
+            logger.info("Da chuyen thanh cong model cu sang Data: %s", dst_dir)
+        except Exception as exc:
+            logger.warning("Loi khi chep model cu %s: %s", item.name, exc)
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return migrated
+
+
 def move_atomic_same_volume(src: Path, dst: Path) -> None:
-    """Di chuyen tep hoac thu muc tren cung o dia mot cach nguyen tu."""
+    """Di chuyen tep hoac thu muc mot cach nguyen tu, ho tro fallback neu khac o dia."""
     if not src.exists():
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
         if dst.is_file():
-            os.replace(src, dst)
-            return
+            try:
+                os.replace(src, dst)
+                return
+            except OSError:
+                shutil.move(str(src), str(dst))
+                return
         if dst.is_dir():
             # Tren Windows, doi ten thu muc vao dich da ton tai se bi loi WinError 5
             # Can xoa thu muc dich cu (sau khi da duoc backup sang noi khac)
             shutil.rmtree(dst)
-            os.replace(src, dst)
-            return
-    os.replace(src, dst)
+            try:
+                os.replace(src, dst)
+                return
+            except OSError:
+                shutil.move(str(src), str(dst))
+                return
+    try:
+        os.replace(src, dst)
+    except OSError:
+        shutil.move(str(src), str(dst))
 
 
 def rollback(
@@ -162,6 +231,12 @@ def apply_update(
     moved_to_app: list[Path] = []
 
     try:
+        # 3.5. Di chuyen an toan model cu (_internal/models) sang Data truoc khi thay the
+        try:
+            migrate_v1_models(app_root)
+        except Exception as e:
+            logger.warning("Loi khi chuyen model V1 sang Data: %s", e)
+
         # 4. Sao luu cac tep hien tai se bi ghi de
         payload_items = [
             p

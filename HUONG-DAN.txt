@@ -1,8 +1,10 @@
 AUTOSUB STUDIO 2.0.0  -  BAN CHAY DOC LAP
 =========================================
 
-Thu muc nay da co san moi thu: FFmpeg, mo hinh nhan dang giong noi,
-mo hinh doc chu tren hinh va thu vien tang toc bang card do hoa.
+Thu muc nay da co san moi thu: FFmpeg, mo hinh doc chu tren hinh
+va thu vien tang toc bang card do hoa. Mo hinh giong noi ASR (Whisper)
+se duoc tai tu dong ve Data\models\asr khi dung lan dau (giu bo cai <2 GB)
+hoac tu dong chuyen tu ban V1 cu sang.
 KHONG can cai dat gi them.
 
 
@@ -173,8 +175,9 @@ Nhap chuot phai vao cho trong trong bang thi hien "Tao du an moi".
 
 CHUC NANG NAO CAN INTERNET
 --------------------------
-Can mang : dich bang Google hoac AI Gateway, tai model voice lan dau
-Khong can: nhan dang giong noi (Whisper), doc chu tren hinh (OCR), tach nhac,
+Can mang : dich bang Google hoac AI Gateway, tai model voice va model ASR lan dau
+Khong can: nhan dang giong noi (sau khi co model trong Data\models\asr),
+           doc chu tren hinh (OCR), tach nhac,
            long tieng offline (Local Voice / Piper), render video
 
 
@@ -202,6 +205,8 @@ Tat ca nam trong thu muc "Data" ngay canh tep chay:
     Data\workspace\projects\   -> du an, video, phu de, ket qua render
     Data\workspace\db\         -> danh sach du an
     Data\config\               -> cai dat va khoa API
+    Data\models\asr\           -> mo hinh nhan dang giong noi (Whisper)
+    Data\models\piper\         -> mo hinh giong doc offline (Piper)
 
 Neu chep phan mem vao noi khong ghi duoc (vi du o dia CD), phan mem
 tu chuyen sang luu o Documents va AppData nhu binh thuong.

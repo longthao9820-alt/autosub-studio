@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..core.models import Cue
+from ..services import paths
 from ..services.gpu import cuda_ready
 from ..services.paths import bundled_dir
 
@@ -38,10 +39,68 @@ def install_hint() -> str:
     )
 
 
+def asr_models_dir() -> Path:
+    """Thu muc chua model ASR (faster-whisper), goi dong qua paths."""
+    return paths.asr_models_dir()
+
+
+def system_hf_cache_dir() -> Path:
+    """Thu muc bo nho dem HuggingFace mac dinh cua he thong."""
+    hf = os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE")
+    if hf:
+        return Path(hf)
+    return Path.home() / ".cache" / "huggingface"
+
+
+def model_cache_dir(model_dir: str = "") -> Path:
+    """Thu muc chua model da tai."""
+    if model_dir and Path(model_dir).is_dir():
+        return Path(model_dir)
+    return asr_models_dir()
+
+
+def find_local_model_dir(size: str, search_dirs: list[Path]) -> Path | None:
+    """Tim thu muc chua model local theo size va model.bin."""
+    needle_fw = f"faster-whisper-{size}".lower().replace("-", "").replace("_", "")
+    needle_size = size.lower().replace("-", "").replace("_", "")
+    for root in search_dirs:
+        if not root or not root.is_dir():
+            continue
+        # 1. Neu root chua model.bin truc tiep va ten root hop voi size
+        if (root / "model.bin").is_file():
+            clean_root = root.name.lower().replace("-", "").replace("_", "")
+            if needle_fw in clean_root or clean_root == needle_size:
+                return root
+        # 2. Kiem tra cac thu muc con truc tiep hoac snapshot HF
+        for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
+            clean_name = child.name.lower().replace("-", "").replace("_", "")
+            if (child / "model.bin").is_file() and (
+                needle_fw in clean_name or clean_name == needle_size
+            ):
+                return child
+            # Kiem tra cau truc snapshots cua HuggingFace
+            snapshots = child / "snapshots"
+            if snapshots.is_dir() and (needle_fw in clean_name or needle_size in clean_name):
+                for snap in sorted(snapshots.iterdir(), reverse=True):
+                    if snap.is_dir() and (snap / "model.bin").is_file():
+                        return snap
+        # 3. Tim kiem fallback trong cay thu muc
+        for p in root.rglob("model.bin"):
+            folder = p.parent
+            clean_parent = (
+                folder.name + " " + folder.parent.name
+            ).lower().replace("-", "").replace("_", "")
+            if needle_fw in clean_parent or needle_size in clean_parent:
+                return folder
+    return None
+
+
 def bundled_model_dirs() -> list[Path]:
     """Cac thu muc model kem theo ban dong goi, sap theo kich thuoc model."""
     root = bundled_dir("models")
-    if root is None:
+    if root is None or not root.is_dir():
         return []
     found = []
     for child in sorted(root.iterdir()):
@@ -64,49 +123,37 @@ def bundled_model_for(size: str) -> Path | None:
 
 def resolve_model_source(size: str, model_dir: str = "") -> tuple[str, bool]:
     """Chon nguon model. Tra ve (duong dan hoac ten model, co san tren may)."""
+    search_dirs: list[Path] = []
     if model_dir:
         p = Path(model_dir)
         if (p / "model.bin").is_file():
             return str(p), True
         if p.is_dir():
-            for child in sorted(p.iterdir()):
-                if child.is_dir() and (child / "model.bin").is_file():
-                    return str(child), True
-    bundled = bundled_model_for(size)
-    if bundled is not None:
-        return str(bundled), True
-    return size, model_is_local(size, model_dir)
+            search_dirs.append(p)
 
+    search_dirs.append(asr_models_dir())
 
-def model_cache_dir(model_dir: str = "") -> Path:
-    """Thu muc chua model da tai."""
-    if model_dir:
-        return Path(model_dir)
-    hf = os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE")
-    if hf:
-        return Path(hf)
-    return Path.home() / ".cache" / "huggingface"
+    bundled = bundled_dir("models")
+    if bundled is not None and bundled.is_dir():
+        search_dirs.append(bundled)
+
+    found = find_local_model_dir(size, search_dirs)
+    if found is not None:
+        return str(found), True
+
+    hf_cache = system_hf_cache_dir()
+    if hf_cache.is_dir():
+        found_hf = find_local_model_dir(size, [hf_cache])
+        if found_hf is not None:
+            return str(found_hf), True
+
+    return size, False
 
 
 def model_is_local(size: str, model_dir: str = "") -> bool:
     """Kiem tra model da co san tren may chua (de khong tu y tai ve)."""
-    p = Path(model_dir) if model_dir else None
-    if p and p.is_dir():
-        if (p / "model.bin").is_file():
-            return True
-        if any(child.is_dir() and (child / "model.bin").is_file() for child in p.iterdir()):
-            return True
-    root = model_cache_dir(model_dir)
-    if not root.is_dir():
-        return False
-    needle = f"faster-whisper-{size}".lower()
-    try:
-        for child in root.rglob("*"):
-            if child.is_dir() and needle in child.name.lower():
-                return True
-    except OSError:
-        return False
-    return False
+    _source, local = resolve_model_source(size, model_dir)
+    return local
 
 
 def resolve_device(choice: str, use_gpu: bool) -> tuple[str, str]:
@@ -146,7 +193,15 @@ def transcribe(
         raise ASRError(f"Khong tim thay tep am thanh: {src}")
 
     dev, compute = resolve_device(device, use_gpu)
-    target, _local = resolve_model_source(model_size, model_dir)
+    target, local = resolve_model_source(model_size, model_dir)
+    cache_root = Path(model_dir) if model_dir and Path(model_dir).is_dir() else asr_models_dir()
+
+    if not local and on_log:
+        on_log(
+            f"Model '{model_size}' chua co san tren may. "
+            f"Dang tu dong tai ve '{cache_root}' (lan dau can ket noi Internet)..."
+        )
+
     if on_log:
         label = Path(target).name if Path(target).is_dir() else target
         where = "card do hoa (GPU)" if dev == "cuda" else "bo xu ly (CPU)"
@@ -154,13 +209,23 @@ def transcribe(
         if dev == "cpu" and (device.startswith("GPU") or use_gpu):
             on_log(f"Khong dung duoc GPU: {cuda_ready()[1]}")
     try:
-        model = WhisperModel(target, device=dev, compute_type=compute)
+        model = WhisperModel(
+            target,
+            device=dev,
+            compute_type=compute,
+            download_root=str(cache_root),
+        )
     except Exception as exc:
         if dev == "cuda":
             if on_log:
                 on_log(f"Khong dung duoc GPU ({exc}). Chuyen sang CPU.")
             try:
-                model = WhisperModel(target, device="cpu", compute_type="int8")
+                model = WhisperModel(
+                    target,
+                    device="cpu",
+                    compute_type="int8",
+                    download_root=str(cache_root),
+                )
             except Exception as exc2:
                 raise ASRError(_friendly(exc2)) from exc2
         else:
