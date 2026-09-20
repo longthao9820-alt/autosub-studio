@@ -6,6 +6,7 @@ import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from .services.paths import app_root, config_dir
 
@@ -25,6 +26,20 @@ def _write_crash(text: str) -> Path:
     except OSError:
         pass
     return path
+
+
+def setup_app_lifecycle(app: Any = None) -> None:
+    """Ket noi tin hieu aboutToQuit cua Qt de giai phong tai nguyen va worker pools."""
+    try:
+        from PySide6.QtCore import QCoreApplication
+
+        from .services.ai_ocr_scheduler import shutdown_global_scheduler
+
+        target = app or QCoreApplication.instance()
+        if target is not None and hasattr(target, "aboutToQuit"):
+            target.aboutToQuit.connect(shutdown_global_scheduler)
+    except Exception:
+        pass
 
 
 def _install_excepthook() -> None:
@@ -63,14 +78,33 @@ def main() -> int:
 
     register_cuda_dlls()
     migrate_v1_models()
+    import atexit
+
+    from .services.ai_ocr_scheduler import shutdown_global_scheduler
+
+    atexit.register(shutdown_global_scheduler)
+
     flags = {arg.lstrip("-/").lower() for arg in sys.argv[1:]}
     if flags & {"selftest", "kiemtra", "selftest-full", "kiemtrasau"}:
         from .selftest import main as selftest_main
 
         return selftest_main(deep=bool(flags & {"selftest-full", "kiemtrasau", "full"}))
+
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        existing = QApplication.instance()
+        target_app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
+        setup_app_lifecycle(target_app)
+    except Exception:
+        pass
+
     from .ui.main_window import run
 
-    return run()
+    try:
+        return run()
+    finally:
+        shutdown_global_scheduler()
 
 
 if __name__ == "__main__":
