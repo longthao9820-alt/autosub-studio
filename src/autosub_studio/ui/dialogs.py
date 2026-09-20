@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -119,6 +121,47 @@ class LogDialog(QDialog):
         layout.addWidget(buttons)
 
 
+_ORPHAN_VISION_WORKERS: set[_VisionTestWorker] = set()
+
+
+class _VisionTestWorker(QThread):
+    finished = Signal(bool, str, float)
+
+    def __init__(
+        self,
+        endpoint: str,
+        api_key: str,
+        model: str,
+        thinking: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self.model = model
+        self.thinking = thinking
+
+    def run(self) -> None:
+        t0 = time.monotonic()
+        try:
+            from autosub_studio.providers import ocr_ai_provider
+
+            ok, msg = ocr_ai_provider.test_vision(
+                self.endpoint,
+                self.api_key,
+                model=self.model,
+                thinking=self.thinking,
+            )
+            lat_ms = (time.monotonic() - t0) * 1000.0
+            self.finished.emit(ok, msg, lat_ms)
+        except Exception as exc:
+            lat_ms = (time.monotonic() - t0) * 1000.0
+            from autosub_studio.services import ai_gateway
+
+            sanitized = ai_gateway._sanitize_error_text(str(exc))
+            self.finished.emit(False, sanitized, lat_ms)
+
+
 class AIGatewayDialog(QDialog):
     """Hop thoai cau hinh ket noi AI Gateway duy nhat cua ung dung."""
 
@@ -126,7 +169,8 @@ class AIGatewayDialog(QDialog):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("Cấu hình AI Gateway")
-        self.resize(580, 480)
+        self.resize(640, 480)
+        self._vision_workers: set[_VisionTestWorker] = set()
 
         # 1. Endpoint & Khoa API
         conn_box = QGroupBox("Kết Nối Server AI (Chuẩn OpenAI)")
@@ -176,12 +220,15 @@ class AIGatewayDialog(QDialog):
 
         self.btn_test_sub = QPushButton("Test Model Sub")
         self.btn_test_sub.clicked.connect(self._test_sub_model)
+        self.btn_test_vision_sub = QPushButton("Test Vision Sub")
+        self.btn_test_vision_sub.clicked.connect(self._test_sub_vision)
 
         sub_row = QHBoxLayout()
         sub_row.addWidget(self.model_sub, 1)
         sub_row.addWidget(QLabel("Thinking:"))
         sub_row.addWidget(self.thinking_sub)
         sub_row.addWidget(self.btn_test_sub)
+        sub_row.addWidget(self.btn_test_vision_sub)
         model_layout.addRow("Alias 'sub':", sub_row)
 
         # Prime
@@ -195,12 +242,15 @@ class AIGatewayDialog(QDialog):
 
         self.btn_test_prime = QPushButton("Test Model Prime")
         self.btn_test_prime.clicked.connect(self._test_prime_model)
+        self.btn_test_vision_prime = QPushButton("Test Vision Prime")
+        self.btn_test_vision_prime.clicked.connect(self._test_prime_vision)
 
         prime_row = QHBoxLayout()
         prime_row.addWidget(self.model_prime, 1)
         prime_row.addWidget(QLabel("Thinking:"))
         prime_row.addWidget(self.thinking_prime)
         prime_row.addWidget(self.btn_test_prime)
+        prime_row.addWidget(self.btn_test_vision_prime)
         model_layout.addRow("Alias 'prime':", prime_row)
 
         # 3. Trang thai ket qua kiem tra
@@ -263,6 +313,103 @@ class AIGatewayDialog(QDialog):
         self._set_status(f"Đang kiểm tra model '{model}'...", "Muted")
         ok, msg = ai_gateway.test_model(ep, key, model=model, thinking=thinking)
         self._set_status(msg, "Ok" if ok else "Error")
+
+    def _test_sub_vision(self) -> None:
+        ep = self.endpoint.text().strip()
+        key = self.api_key.text().strip()
+        model = self.model_sub.text().strip()
+        thinking = self.thinking_sub.currentText()
+        if not ep:
+            self._set_status("Lỗi: Chưa nhập Endpoint.", "Error")
+            return
+        if not model:
+            self._set_status("Lỗi: Chưa chỉ định tên model.", "Error")
+            return
+        self._start_vision_worker(ep, key, model, thinking, self.btn_test_vision_sub)
+
+    def _test_prime_vision(self) -> None:
+        ep = self.endpoint.text().strip()
+        key = self.api_key.text().strip()
+        model = self.model_prime.text().strip()
+        thinking = self.thinking_prime.currentText()
+        if not ep:
+            self._set_status("Lỗi: Chưa nhập Endpoint.", "Error")
+            return
+        if not model:
+            self._set_status("Lỗi: Chưa chỉ định tên model.", "Error")
+            return
+        self._start_vision_worker(ep, key, model, thinking, self.btn_test_vision_prime)
+
+    def _start_vision_worker(
+        self,
+        endpoint: str,
+        api_key: str,
+        model: str,
+        thinking: str,
+        button: QPushButton,
+    ) -> None:
+        self._set_status(f"Đang kiểm tra Vision model '{model}'...", "Muted")
+        button.setEnabled(False)
+
+        worker = _VisionTestWorker(
+            endpoint, api_key, model=model, thinking=thinking, parent=self
+        )
+        self._vision_workers.add(worker)
+
+        def _on_finished(ok: bool, msg: str, latency: float) -> None:
+            self._vision_workers.discard(worker)
+            _ORPHAN_VISION_WORKERS.discard(worker)
+            try:
+                button.setEnabled(True)
+                if ok:
+                    lines = [
+                        "AI Gateway: Connected",
+                        "Authentication: Valid",
+                        f"Model: {model}",
+                        "Vision OCR: OK",
+                        f"Latency: {int(round(latency))} ms",
+                    ]
+                    self._set_status("\n".join(lines), "Ok")
+                else:
+                    sanitized = ai_gateway._sanitize_error_text(msg)
+                    self._set_status(sanitized, "Error")
+            except RuntimeError:
+                pass
+            finally:
+                worker.deleteLater()
+
+        worker.finished.connect(_on_finished)
+        worker.start()
+
+    def _stop_vision_workers(self) -> None:
+        workers = list(self._vision_workers)
+        for w in workers:
+            w.requestInterruption()
+        for w in workers:
+            if w.isRunning():
+                w.wait(1000)
+                if w.isRunning():
+                    w.setParent(None)
+                    _ORPHAN_VISION_WORKERS.add(w)
+                    w.finished.connect(
+                        lambda *args, worker=w: _ORPHAN_VISION_WORKERS.discard(worker)
+                    )
+                    w.finished.connect(w.deleteLater)
+        self._vision_workers.clear()
+        self.btn_test_vision_sub.setEnabled(True)
+        self.btn_test_vision_prime.setEnabled(True)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._stop_vision_workers()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        self._stop_vision_workers()
+        super().reject()
+
+    def accept(self) -> None:
+        self._stop_vision_workers()
+        super().accept()
 
     def _on_save(self) -> None:
         self.settings.ai_endpoint = self.endpoint.text().strip()

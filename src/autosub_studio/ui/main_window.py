@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -55,7 +56,7 @@ from ..providers.local_voice import (
     piper_runtime_ready,
     synthesize_piper,
 )
-from ..services import gpu
+from ..services import ai_gateway, gpu
 from ..services.ffmpeg import CancelToken, FFmpeg, FFmpegError
 from ..services.paths import app_root, bundled_dir, ensure_workspace, migrate_v1_models, safe_name
 from ..services.presets import PresetManager
@@ -200,6 +201,7 @@ class MainWindow(QMainWindow):
         self._logs: dict[str, list[str]] = {}
         self._download_task_ids: set[str] = set()
         self._preview_task_ids: set[str] = set()
+        self._ai_vision_task_ids: set[str] = set()
         self._preview_player = QMediaPlayer(self)
         self._preview_audio_output = QAudioOutput(self)
         self._preview_player.setAudioOutput(self._preview_audio_output)
@@ -863,6 +865,7 @@ class MainWindow(QMainWindow):
         self.subtitle_panel.markOcrRegion.connect(lambda: self._reset_region(MODE_OCR))
         self.subtitle_panel.measureOcr.connect(lambda: self._run_step(P.STEP_OCR_MEASURE))
         self.subtitle_panel.checkMachine.connect(self._check_machine_configuration)
+        self.subtitle_panel.testAiVision.connect(self._test_ai_vision)
 
         self.translate_panel.runTranslate.connect(lambda: self._run_step(P.STEP_TRANSLATE))
         self.translate_panel.translateSelected.connect(self._translate_selected)
@@ -917,6 +920,54 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self._load_settings_into_ui()
             self._log("Đã lưu cấu hình AI Gateway.")
+
+    def _test_ai_vision(self) -> None:
+        self._collect_settings()
+        endpoint = self.settings.ai_endpoint.strip()
+        key = Settings.get_secret("ai_gateway_key")
+        if not endpoint:
+            self.subtitle_panel.status.setText("Lỗi: Chưa nhập Endpoint AI Gateway.")
+            self._log("Lỗi: Chưa nhập Endpoint AI Gateway.")
+            return
+
+        alias = getattr(self.settings, "ocr_ai_model", "sub") or "sub"
+        model, thinking = ai_gateway.resolve_model(alias, self.settings)
+        if not model:
+            self.subtitle_panel.status.setText("Lỗi: Chưa chỉ định tên model.")
+            self._log("Lỗi: Chưa chỉ định tên model.")
+            return
+
+        self.subtitle_panel.status.setText(f"Đang kiểm tra Vision model '{model}'...")
+        self._log(f"Đang kiểm tra Vision AI cho model '{model}' ({endpoint})...")
+
+        timeout = float(getattr(self.settings, "ocr_ai_timeout", 15.0) or 15.0)
+
+        def job(ctx: TaskContext) -> str:
+            ctx.progress(10)
+            t0 = time.monotonic()
+            from autosub_studio.providers import ocr_ai_provider
+
+            ok, msg = ocr_ai_provider.test_vision(
+                endpoint,
+                key,
+                model=model,
+                thinking=thinking,
+                timeout=timeout,
+            )
+            lat_ms = (time.monotonic() - t0) * 1000.0
+            ctx.progress(100)
+            if not ok:
+                sanitized = ai_gateway._sanitize_error_text(msg)
+                raise RuntimeError(sanitized)
+            return f"Vision OCR: OK (Latency: {int(round(lat_ms))} ms) - {msg}"
+
+        task_id = self.tasks.submit(
+            f"Kiểm tra Vision AI ({model})",
+            job,
+            project_id=self.project_id,
+            timeout=int(timeout) + 10,
+        )
+        self._ai_vision_task_ids.add(task_id)
 
     # ------------------------------------------------------------------ cap nhat
 
@@ -2393,6 +2444,13 @@ class MainWindow(QMainWindow):
     def _on_task_log(self, task_id: str, message: str) -> None:
         self._logs.setdefault(task_id, []).append(message)
         self.logAppended.emit(message)
+        if message.strip().startswith("OCR AI Metrics:"):
+            parts = message.strip().split(":", 1)
+            heading = parts[0].strip() + ":"
+            fields = [f.strip() for f in parts[1].split(",") if f.strip()]
+            display_text = heading + "\n" + "\n".join(fields)
+            self.subtitle_panel.status.setText(display_text)
+            return
         record = self.tasks.record(task_id)
         if record is None or record.name != P.STEP_OCR:
             return
@@ -2419,6 +2477,23 @@ class MainWindow(QMainWindow):
         is_batch = task_id in self._batch_task_ids
         is_download = task_id in self._download_task_ids
         is_preview = task_id in self._preview_task_ids
+        is_ai_vision = task_id in self._ai_vision_task_ids
+
+        if is_ai_vision:
+            self._ai_vision_task_ids.discard(task_id)
+            self._logs.pop(task_id, None)
+            if status == DONE:
+                text = str(result or message)
+                self.subtitle_panel.status.setText(text)
+                self._log(f"Hoan tat: {name} - {text}")
+                self.statusBar().showMessage(text, 8000)
+            else:
+                sanitized = ai_gateway._sanitize_error_text(message)
+                err_text = f"Lỗi: {sanitized}"
+                self.subtitle_panel.status.setText(err_text)
+                self._log(f"LOI: {name} - {sanitized}")
+                self.statusBar().showMessage(err_text, 8000)
+            return
 
         if status == DONE:
             text = str(result or message)
