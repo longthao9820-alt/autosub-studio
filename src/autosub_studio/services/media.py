@@ -12,6 +12,7 @@ from array import array
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 from .ffmpeg import CancelToken, FFmpeg, FFmpegError, MediaInfo
 from .gpu import best_hw_encoder, video_encoder_args
@@ -933,3 +934,47 @@ def probe_or_raise(ff: FFmpeg, path: str | Path) -> MediaInfo:
         return ff.probe(path)
     except FFmpegError as exc:
         raise FFmpegError(f"Khong doc duoc tep {Path(path).name}: {exc}") from exc
+
+
+def crop_image(
+    src: str | Path | Any,
+    region: Sequence[int],
+    out_path: str | Path | None = None,
+) -> Any:
+    """Cat mot vung (x, y, w, h) tu anh va luu hoac tra ve PIL Image."""
+    from PIL import Image
+
+    if isinstance(src, (str, Path)):
+        with Image.open(src) as raw:
+            img = raw.convert("RGB")
+            cropped = _crop_pil(img, region)
+            if out_path:
+                out = Path(out_path)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                cropped.save(out)
+                return out
+            return cropped
+    elif hasattr(src, "crop"):
+        cropped = _crop_pil(src, region)
+        if out_path:
+            out = Path(out_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            cropped.save(out)
+            return out
+        return cropped
+    raise TypeError(f"Unsupported image type: {type(src)}")
+
+
+def _crop_pil(img: Any, region: Sequence[int]) -> Any:
+    if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+        return img.copy()
+    x, y, w, h = (int(v) for v in region)
+    cw = max(1, min(w, img.width - max(0, x)))
+    ch = max(1, min(h, img.height - max(0, y)))
+    return img.crop((max(0, x), max(0, y), max(0, x) + cw, max(0, y) + ch))
+
+
+def chunk_sequence(items: Sequence[Any], chunk_size: int) -> list[list[Any]]:
+    """Chia mot danh sach thanh cac doan nho co do dai toi da chunk_size."""
+    size = max(1, int(chunk_size))
+    return [list(items[i : i + size]) for i in range(0, len(items), size)]

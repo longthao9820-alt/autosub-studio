@@ -578,7 +578,7 @@ def refine_boundaries(
     do cu, tim dung khung ma chu bat dau hien ra va khung ma chu bien mat.
     """
     if not cues or coarse_step <= 0:
-    return cues
+        return cues
 
 
     engine = _load_engine(bool(use_gpu) and gpu_available(), profile, batch_size)
