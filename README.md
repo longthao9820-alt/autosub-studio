@@ -236,7 +236,36 @@ Sản phẩm hoàn chỉnh sẽ được tạo ra tại thư mục `dist\AutoSub
 .\.venv\Scripts\python.exe scripts\smoke_media.py
 .\.venv\Scripts\python.exe scripts\smoke_speech.py
 .\.venv\Scripts\python.exe -m autosub_studio --selftest-full
+
+# Đo hiệu năng AI OCR mô phỏng (không cần mạng, không tốn API)
+.\.venv\Scripts\python.exe scripts\benchmark_ai_ocr.py --profile all --json benchmark-results\ai_ocr_latest.json
 ```
+
+### Đo hiệu năng AI OCR (AI OCR Benchmark)
+
+Hệ thống cung cấp công cụ đo kiểm hiệu năng lặp lại được (`scripts\benchmark_ai_ocr.py`), chạy hoàn toàn nội bộ bằng dữ liệu khung hình thị giác mô phỏng (synthetic visual manifests), **không gọi mạng bên ngoài và không tốn chi phí API**.
+
+Lệnh thực thi:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmark_ai_ocr.py --profile all --json benchmark-results\ai_ocr_latest.json
+```
+
+**Ý nghĩa các chỉ số trong bảng kết quả:**
+
+| Cột | Ý nghĩa |
+|---|---|
+| `Profile` | Hồ sơ đo: `short` (120 khung ~1 phút), `normal` (1.800 khung ~15 phút), `long` (7.200 khung ~60 phút), `multi` (3 luồng video chạy đồng thời). |
+| `Sampled` | Tổng số khung hình gốc được lấy mẫu theo fps. |
+| `Sent` | Số khung hình đại diện thực tế gửi lên AI sau khi đã lọc bỏ khung trống và khung trùng lặp. |
+| `Reqs` | Số lượng yêu cầu theo lô (`ceil(Sent / batch_size)`). |
+| `AvgBatch` | Kích thước trung bình của mỗi lô gửi (số ảnh/lô). |
+| `Reduction` | Tỷ lệ giảm tải khung hình (`(Sampled - Sent) / Sampled`), luôn đảm bảo đạt `>= 70%`. |
+| `Subs` | Số câu phụ đề trích xuất, đảm bảo 100% khớp dữ liệu chuẩn (Ground Truth) và 0 ảo giác (hallucinations). |
+| `Latency` | Độ trễ xử lý trung bình mỗi lô yêu cầu (mô phỏng). |
+| `Duration` | Tổng thời gian chạy thực tế của toàn bộ quy trình (giây). |
+| `Active` | Số tác vụ chạy đồng thời cao nhất (Peak Active), bảo đảm không vượt quá giới hạn `max_concurrency`. |
+| `Cache Test` | Kiểm tra lần 2 trên bộ nhớ đệm SQLite: tỷ lệ trúng cache đạt 100%, số lần gọi AI bằng 0. |
 
 ---
 

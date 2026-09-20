@@ -1,0 +1,81 @@
+{
+  "config": {
+    "profile": "all",
+    "scale": 1.0,
+    "batch_size": 8,
+    "max_concurrency": 4,
+    "fps": 2.0
+  },
+  "profiles": {
+    "short": {
+      "profile": "short",
+      "requested_original_sampled": 120,
+      "sent_images": 4,
+      "total_requests": 1,
+      "avg_batch": 4.0,
+      "min_reduction_pct": 70.0,
+      "reduction_pct": 96.67,
+      "subtitle_count": 4,
+      "rejected_frames": 116,
+      "ground_truth_count": 4,
+      "coverage_pct": 100.0,
+      "hallucination_count": 0,
+      "passed": true
+    },
+    "normal": {
+      "profile": "normal",
+      "requested_original_sampled": 1800,
+      "sent_images": 40,
+      "total_requests": 5,
+      "avg_batch": 8.0,
+      "min_reduction_pct": 70.0,
+      "reduction_pct": 97.78,
+      "subtitle_count": 40,
+      "rejected_frames": 1760,
+      "ground_truth_count": 40,
+      "coverage_pct": 100.0,
+      "hallucination_count": 0,
+      "passed": true
+    },
+    "long": {
+      "profile": "long",
+      "requested_original_sampled": 7200,
+      "sent_images": 150,
+      "total_requests": 19,
+      "avg_batch": 7.89,
+      "min_reduction_pct": 70.0,
+      "reduction_pct": 97.92,
+      "subtitle_count": 150,
+      "rejected_frames": 7050,
+      "ground_truth_count": 150,
+      "coverage_pct": 100.0,
+      "hallucination_count": 0,
+      "passed": true
+    },
+    "multi": {
+      "profile": "multi",
+      "requested_original_sampled": 360,
+      "sent_images": 12,
+      "total_requests": 3,
+      "avg_batch": 4.0,
+      "min_reduction_pct": 70.0,
+      "reduction_pct": 96.67,
+      "subtitle_count": 12,
+      "rejected_frames": 348,
+      "ground_truth_count": 12,
+      "coverage_pct": 100.0,
+      "hallucination_count": 0,
+      "max_active_limit": 4,
+      "passed": true
+    }
+  },
+  "cache_test": {
+    "first_run_provider_calls": 1,
+    "second_run_provider_calls": 0,
+    "cache_hits": 4,
+    "cache_hit_rate_pct": 100.0,
+    "zero_provider_calls": true,
+    "passed": true
+  },
+  "all_passed": true
+}
