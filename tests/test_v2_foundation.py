@@ -6,7 +6,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from PySide6.QtWidgets import QPushButton
+from PySide6.QtWidgets import QPushButton, QScrollArea
 
 import autosub_studio
 from autosub_studio.data.project import PROJECT_SCHEMA_VERSION, ProjectStore
@@ -191,9 +191,10 @@ class TestUIChanges:
 
         # RenderPanel B4 tren tab
         assert window.tab_bar.buttons[4].text() == "B4: Render & Xuất Video"
-        b4_widget = window.tab_stack.widget(4)
-        assert isinstance(b4_widget, RenderPanel)
-        assert b4_widget is window.render_panel
+        b4_page = window.tab_stack.widget(4)
+        assert isinstance(b4_page, QScrollArea)
+        assert b4_page.widget() is window.render_panel
+        assert isinstance(window.render_panel, RenderPanel)
 
         # CapCut panel khong con ton tai
         assert not hasattr(window, "capcut_panel")

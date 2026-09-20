@@ -179,6 +179,8 @@ class TestReferenceTableAppearance:
         view.setModel(model)
         view.resize(900, 180)
         view.show()
+        view.activateWindow()
+        view.setFocus()
         qapp.processEvents()
 
         view.pressed.connect(lambda index: model.set_current(index.row()))

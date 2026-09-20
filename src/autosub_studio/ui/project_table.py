@@ -8,6 +8,8 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyMod
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QStyledItemDelegate, QTableView
 
+from .style import get_ui_font_family
+
 HEADERS = (
     "",
     "Chức năng",
@@ -147,7 +149,7 @@ class ProjectTableModel(QAbstractTableModel):
                     return QBrush(GREEN)
                 return QBrush(CYAN)
         if role == Qt.ItemDataRole.FontRole:
-            font = QFont("Tahoma")
+            font = QFont(get_ui_font_family())
             font.setBold(col not in (COL_STT,))
             return font
         return None

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableView
 
 from ..core.models import Cue, SubtitleDoc
 from ..core.timecode import TimecodeError, format_display, parse_timecode
+from .style import get_ui_font_family
 
 COL_INDEX = 0
 COL_SPEAKER = 1
@@ -153,7 +154,7 @@ class CueTableModel(QAbstractTableModel):
             if col in (COL_START, COL_END) and cue.end <= cue.start:
                 return QBrush(QColor("#d05353"))
         if role == Qt.ItemDataRole.FontRole:
-            font = QFont("Tahoma")
+            font = QFont(get_ui_font_family())
             font.setBold(col in (COL_SPEAKER, COL_START, COL_TEXT, COL_TRANS))
             return font
         if role == Qt.ItemDataRole.ToolTipRole and col == COL_START:

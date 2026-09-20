@@ -88,7 +88,13 @@ try {
 Write-Host "Don thu muc build cu..."
 if (Test-Path (Join-Path $root "build")) { Remove-Item -Recurse -Force (Join-Path $root "build") }
 if (Test-Path (Join-Path $root "dist\AutoSubStudio")) {
-    Remove-Item -Recurse -Force (Join-Path $root "dist\AutoSubStudio")
+    try {
+        Remove-Item -Recurse -Force (Join-Path $root "dist\AutoSubStudio")
+    } catch {
+        $trash = Join-Path $root ("dist\.trash_" + [guid]::NewGuid().ToString("N"))
+        Rename-Item -LiteralPath (Join-Path $root "dist\AutoSubStudio") -NewName (Split-Path $trash -Leaf)
+        try { Remove-Item -Recurse -Force $trash -ErrorAction SilentlyContinue } catch {}
+    }
 }
 
 # --- Dong goi ---------------------------------------------------------------

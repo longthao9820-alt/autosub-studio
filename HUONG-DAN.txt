@@ -178,6 +178,24 @@ Khong can: nhan dang giong noi (Whisper), doc chu tren hinh (OCR), tach nhac,
            long tieng offline (Local Voice / Piper), render video
 
 
+CAP NHAT PHAN MEM (UPDATER)
+---------------------------
+Vao tab "Cau Hinh Chung" -> bam "Kiem Tra Cap Nhat".
+Neu co phien ban moi tren GitHub, bam "Cap Nhat Ngay". Trinh ho tro
+AutoSubUpdater.exe se tu dong tai ban moi ve, thay the nguyen tu va khoi
+dong lai phan mem ma van giu nguyen toan bo du lieu trong thu muc "Data".
+
+
+GIONG DOC OFFLINE (PIPER TTS)
+-----------------------------
+Ban dong goi da co san runtime Piper trong thu muc _internal\piper\.
+Cac model giong doc sau khi bam "Tai Voice" o tab B3 se duoc luu vao
+Data\models\piper\ de dung offline vinh vien ma khong can mang.
+Neu chay tu ma nguon: tai ban release Windows tu
+https://github.com/rhasspy/piper/releases va giai nen vao assets\piper\
+(can piper.exe va thu muc espeak-ng-data).
+
+
 DU LIEU LUU O DAU
 -----------------
 Tat ca nam trong thu muc "Data" ngay canh tep chay:

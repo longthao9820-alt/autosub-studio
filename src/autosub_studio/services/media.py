@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .ffmpeg import CancelToken, FFmpeg, FFmpegError, MediaInfo
 from .gpu import best_hw_encoder, video_encoder_args
-from .paths import bundled_dir
+from .paths import fonts_dir
 
 VOICE_RATE = 24000  # tan so lay mau cho track long tieng
 VOICE_WIDTH = 2  # 16 bit
@@ -202,7 +202,7 @@ def burn_subtitles(
     if lut_path and Path(lut_path).is_file():
         lut = Path(lut_path).resolve().as_posix().replace(":", r"\:")
         chain.append(f"lut3d='{lut}'")
-    font_dir = bundled_dir("fonts")
+    font_dir = fonts_dir()
     if font_dir is not None:
         fonts = font_dir.resolve().as_posix().replace(":", r"\:").replace("'", r"\'")
         chain.append(f"subtitles='{ass.name}':fontsdir='{fonts}'")

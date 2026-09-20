@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QApplication
+
+from ..services.paths import fonts_dir
+
 # Nen
 BG = "#30353a"
 BG_DEEP = "#202428"
@@ -33,8 +40,135 @@ BAD_TEXT = "#e86464"
 WARN_TEXT = "#ffcc55"
 GREY_TEXT = "#9a9a9a"
 
-QSS = f"""
-* {{ font-family: "Segoe UI", "Tahoma", sans-serif; font-size: 12px; }}
+_active_font_family: str | None = None
+_active_font_path: Path | None = None
+_font_registered: bool = False
+
+
+def _reset_font_state() -> None:
+    """Xoa trang thai font da dang ky (dung cho kiem thu)."""
+    global _active_font_family, _active_font_path, _font_registered, QSS
+    _active_font_family = None
+    _active_font_path = None
+    _font_registered = False
+    QSS = build_qss()
+
+
+def find_ui_font_file() -> Path | None:
+    """Tim tep font Unicode kem theo ung dung."""
+    fdir = fonts_dir()
+    if fdir is None or not fdir.is_dir():
+        return None
+    regular = fdir / "NotoSans-Regular.ttf"
+    if regular.is_file():
+        return regular
+    for cand in sorted(fdir.glob("NotoSans*.ttf")):
+        if cand.is_file():
+            return cand
+    for ext in ("*.ttf", "*.otf"):
+        for cand in sorted(fdir.glob(ext)):
+            if cand.is_file():
+                return cand
+    return None
+
+
+def get_fallback_font_family(app: QApplication | None = None) -> str:
+    """Lay font mac dinh cua he thong thay vi gia tri co dinh khi nap font that bai."""
+    try:
+        sys_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+        fam = sys_font.family()
+        if fam:
+            return fam
+    except Exception:
+        pass
+    target = app or QApplication.instance()
+    if target is not None and isinstance(target, QApplication):
+        fam = target.font().family()
+        if fam:
+            return fam
+    return "Sans Serif"
+
+
+def get_ui_font_family() -> str:
+    """Ten ho font dang duoc su dung cho giao dien."""
+    global _active_font_family
+    if _active_font_family:
+        return _active_font_family
+    return get_fallback_font_family()
+
+
+def get_ui_font_path() -> Path | None:
+    """Duong dan tep font da dang ky thanh cong, hoac None neu dung fallback."""
+    return _active_font_path
+
+
+def init_app_font(
+    app: QApplication | None = None,
+    *,
+    font_path: Path | str | None = None,
+    force_fallback: bool = False,
+) -> str:
+    """Dang ky font Unicode (Noto Sans) va thiet lap font mac dinh cho ung dung."""
+    global _active_font_family, _active_font_path, _font_registered, QSS
+
+    target_app = app if isinstance(app, QApplication) else QApplication.instance()
+    q_app = target_app if isinstance(target_app, QApplication) else None
+    if _font_registered and _active_font_family and not font_path and not force_fallback:
+        if q_app is not None:
+            q_app.setFont(QFont(_active_font_family, 9))
+        return _active_font_family
+
+    family: str | None = None
+    selected_path: Path | None = None
+
+    if not force_fallback:
+        if font_path is not None:
+            p = Path(font_path)
+            selected_path = p if p.is_file() else None
+        else:
+            selected_path = find_ui_font_file()
+
+        if selected_path and selected_path.is_file():
+            try:
+                font_id = QFontDatabase.addApplicationFont(str(selected_path.resolve()))
+                if font_id >= 0:
+                    families = QFontDatabase.applicationFontFamilies(font_id)
+                    if families:
+                        family = families[0]
+                        fdir = selected_path.parent
+                        for extra_name in (
+                            "NotoSans-Bold.ttf",
+                            "NotoSans-SemiBold.ttf",
+                            "NotoSans-Medium.ttf",
+                            "NotoSans-Italic.ttf",
+                            "NotoSans-BoldItalic.ttf",
+                        ):
+                            extra_file = fdir / extra_name
+                            if extra_file.is_file() and extra_file != selected_path:
+                                QFontDatabase.addApplicationFont(str(extra_file.resolve()))
+            except Exception:
+                family = None
+
+    if not family:
+        family = get_fallback_font_family(q_app)
+        selected_path = None
+
+    _active_font_family = family
+    _active_font_path = selected_path
+    _font_registered = True
+
+    if q_app is not None:
+        q_app.setFont(QFont(family, 9))
+
+    QSS = build_qss(family)
+    return family
+
+
+def build_qss(font_family: str | None = None) -> str:
+    """Tao ma CSS giao dien dua tren ho font duoc chon."""
+    fam = font_family or get_ui_font_family()
+    return f"""
+* {{ font-family: "{fam}", sans-serif; font-size: 12px; }}
 QWidget {{ background: {BG}; color: {TEXT}; }}
 QMainWindow, QDialog {{ background: {BG}; }}
 
@@ -194,7 +328,7 @@ QTableCornerButton::section {{ background: {PANEL_2}; border: none; }}
 
 /* Hai bang chinh dung font, do dam va mau chon sat voi giao dien mau NTS. */
 QTableView#CueTable, QTableView#ProjectTable {{
-    font-family: "Tahoma";
+    font-family: "{fam}", sans-serif;
     font-size: 12px;
     font-weight: 600;
 }}
@@ -209,7 +343,7 @@ QTableView#ProjectTable {{
 }}
 QTableView#CueTable QHeaderView::section,
 QTableView#ProjectTable QHeaderView::section {{
-    font-family: "Tahoma";
+    font-family: "{fam}", sans-serif;
     font-size: 12px;
     font-weight: 700;
     color: #eeeeee;
@@ -279,3 +413,13 @@ QMenu {{ background: {PANEL}; border: 1px solid {BORDER}; padding: 3px; }}
 QMenu::item {{ padding: 5px 20px; border-radius: 3px; }}
 QMenu::item:selected {{ background: {GREEN}; color: #ffffff; }}
 """
+
+
+def get_qss(font_family: str | None = None) -> str:
+    """Lay ma QSS hien tai hoac theo font chi dinh."""
+    if font_family is not None:
+        return build_qss(font_family)
+    return QSS
+
+
+QSS = build_qss()

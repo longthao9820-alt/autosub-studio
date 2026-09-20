@@ -1029,7 +1029,7 @@ class DubPanel(QWidget):
         self.voice.currentIndexChanged.connect(lambda _i: self.refresh_status())
         self.btn_library = QPushButton("Thư viện giọng")
         self.btn_preview = QPushButton("▶")
-        self.btn_dictionary = QPushButton("Pronunciation Dictionary")
+        self.btn_dictionary = QPushButton("Từ Điển Phát Âm")
         self.btn_punctuation = QPushButton("Chỉnh Dấu Câu")
         self._dictionary_text = ""
         self._pause_period_ms = 300
@@ -1109,9 +1109,10 @@ class DubPanel(QWidget):
     def _edit_dictionary(self) -> None:
         text, accepted = QInputDialog.getMultiLineText(
             self,
-            "English Pronunciation Dictionary",
-            "Mỗi dòng: original=pronunciation",
+            "Từ Điển Phát Âm",
+            "Mỗi dòng: từ gốc=cách phát âm",
             self._dictionary_text,
+
         )
         if accepted:
             self._dictionary_text = text.strip()
@@ -1151,9 +1152,21 @@ class DubPanel(QWidget):
 
         voices_box = QGroupBox("Danh Sách Giọng Đọc")
         self.voice_table = _table(
-            ["Phím tắt", "Language", "Gender", "Volume", "Speed", "Bass", "Mid", "Treble"],
+            [
+                "Phím tắt",
+                "Ngôn ngữ",
+                "Giới tính",
+                "Âm lượng",
+                "Tốc độ",
+                "Bass",
+                "Mid",
+                "Treble",
+            ],
             height=150,
         )
+        voice_header = self.voice_table.horizontalHeader()
+        voice_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        voice_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         voices_layout = QVBoxLayout(voices_box)
         voices_layout.setContentsMargins(6, 12, 6, 6)
         voice_body = QHBoxLayout()
@@ -1234,18 +1247,20 @@ class DubPanel(QWidget):
         dub_layout.addWidget(self.keep_original, 0, 0)
         dub_layout.addWidget(self.use_original_video, 0, 1)
         dub_layout.addWidget(self.ducking, 0, 2)
-        dub_layout.addWidget(field_label("Mode:"), 0, 3)
-        dub_layout.addWidget(self.render_mode, 0, 4)
-        dub_layout.addWidget(field_label("Nghỉ Cuối:"), 1, 0)
-        dub_layout.addWidget(self.end_pause, 1, 1)
-        dub_layout.addWidget(self.btn_separate, 1, 2, 1, 2)
-        dub_layout.addWidget(self.btn_dub, 1, 4)
-        dub_layout.addWidget(field_label("Giới Hạn CPU:"), 2, 0)
-        dub_layout.addWidget(self.timeline_cpu, 2, 1)
-        dub_layout.addWidget(field_label("Số Luồng Ghép:"), 2, 2)
-        dub_layout.addWidget(self.timeline_workers, 2, 3)
-        dub_layout.addWidget(self.timeline_decode, 2, 4)
-        dub_layout.addWidget(self.status, 3, 0, 1, 5)
+        dub_layout.addWidget(field_label("Chế độ căn:"), 1, 0)
+        dub_layout.addWidget(self.render_mode, 1, 1, 1, 2)
+        dub_layout.addWidget(field_label("Nghỉ Cuối:"), 2, 0)
+        dub_layout.addWidget(self.end_pause, 2, 1)
+        dub_layout.addWidget(self.btn_separate, 2, 2)
+        dub_layout.addWidget(self.btn_dub, 2, 3)
+        dub_layout.addWidget(field_label("Giới Hạn CPU:"), 3, 0)
+        dub_layout.addWidget(self.timeline_cpu, 3, 1)
+        dub_layout.addWidget(field_label("Số Luồng Ghép:"), 3, 2)
+        dub_layout.addWidget(self.timeline_workers, 3, 3)
+        self.timeline_decode.setParent(dub_box)
+        self.timeline_decode.hide()
+        dub_layout.addWidget(self.status, 4, 0, 1, 4)
+        dub_layout.setColumnStretch(2, 1)
 
         column.addWidget(voices_box, 1)
         column.addWidget(speaker_box)
@@ -1627,7 +1642,7 @@ class SettingsPanel(QWidget):
         grid.setContentsMargins(10, 14, 10, 9)
         grid.setHorizontalSpacing(30)
         grid.setVerticalSpacing(13)
-        for col, widget in enumerate(
+        for index, widget in enumerate(
             (
                 self.gpu,
                 self.keep_temp,
@@ -1636,7 +1651,8 @@ class SettingsPanel(QWidget):
                 self.smart_cut,
             )
         ):
-            grid.addWidget(widget, 0, col)
+            grid.addWidget(widget, index // 3, index % 3)
+
         self.btn_ai_gateway = QPushButton("AI Gateway  ⚙")
         self.btn_ai_gateway.setObjectName("Flat")
         self.btn_ai_gateway.setEnabled(True)
@@ -1646,9 +1662,10 @@ class SettingsPanel(QWidget):
         self.btn_export_settings.setObjectName("Flat")
         self.btn_export_settings.setToolTip("Chọn thư mục lưu video render thành công")
         self.btn_export_settings.clicked.connect(self.chooseOutputFolder.emit)
-        grid.addWidget(self.btn_ai_gateway, 1, 0)
-        grid.addWidget(self.btn_export_settings, 1, 1)
-        grid.setColumnStretch(5, 1)
+        grid.addWidget(self.btn_ai_gateway, 2, 0)
+        grid.addWidget(self.btn_export_settings, 2, 1)
+        grid.setColumnStretch(3, 1)
+
 
         for hidden in (self.scale, self.fps, self.gpu_status):
             hidden.setParent(box)

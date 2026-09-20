@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -94,7 +95,7 @@ from .project_table import (
     ProjectTableModel,
     ProjectTableView,
 )
-from .style import BLUE, GREEN, OLIVE, QSS
+from .style import BLUE, GREEN, OLIVE, get_qss, init_app_font
 from .widgets import (
     ACTION_FOLDER,
     ACTION_RUN,
@@ -177,6 +178,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        existing = QApplication.instance()
+        if isinstance(existing, QApplication):
+            init_app_font(existing)
+            if not existing.styleSheet():
+                existing.setStyleSheet(get_qss())
         self.settings = Settings.load()
         ensure_workspace(self.settings.workspace)
         self.db = Database(Path(self.settings.workspace) / "db" / "app.db")
@@ -580,15 +586,25 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tab_stack = QStackedWidget()
-        for page in (
-            projects_page,
-            self.subtitle_panel,
-            self.translate_panel,
-            self.dub_panel,
-            self.render_panel,
-            self.settings_panel,
+        self._panel_scroll_areas: dict[QWidget, QScrollArea] = {}
+        self.tab_stack.addWidget(projects_page)
+        for name, panel in (
+            ("B1Scroll", self.subtitle_panel),
+            ("B2Scroll", self.translate_panel),
+            ("B3Scroll", self.dub_panel),
+            ("B4Scroll", self.render_panel),
+            ("SettingsScroll", self.settings_panel),
         ):
-            self.tab_stack.addWidget(page)
+            scroll = QScrollArea()
+            scroll.setObjectName(name)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setWidget(panel)
+            self._panel_scroll_areas[panel] = scroll
+            self.tab_stack.addWidget(scroll)
+
         self.tab_bar.currentChanged.connect(self.tab_stack.setCurrentIndex)
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
 
@@ -3216,7 +3232,9 @@ class MainWindow(QMainWindow):
             self._run_script(self.script_panel.checked_steps())
 
     def _on_tab_changed(self, index: int) -> None:
-        if self.tab_stack.widget(index) is self.dub_panel and not self._voices_loaded:
+        current = self.tab_stack.widget(index)
+        dub_page = self._panel_scroll_areas.get(self.dub_panel, self.dub_panel)
+        if current is dub_page and not self._voices_loaded:
             self._voices_loaded = True
             self.dub_panel.load(self.settings)
             self.dub_panel.refresh_status()
@@ -3468,8 +3486,9 @@ def run() -> int:
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    init_app_font(app)
     app.setStyle("Fusion")
-    app.setStyleSheet(QSS)
+    app.setStyleSheet(get_qss())
     window = MainWindow()
     window.showMaximized()
     return app.exec()

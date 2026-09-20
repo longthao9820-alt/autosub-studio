@@ -62,6 +62,18 @@ def bundled_dir(name: str) -> Path | None:
     return None
 
 
+def fonts_dir() -> Path | None:
+    """Thu muc font Unicode hop le cua ban dong goi hoac ma nguon."""
+    if not getattr(sys, "frozen", False):
+        dev = app_root() / "assets" / "fonts"
+        if (dev / "NotoSans-Regular.ttf").is_file():
+            return dev
+    bundled = bundled_dir("fonts")
+    if bundled is not None and (bundled / "NotoSans-Regular.ttf").is_file():
+        return bundled
+    return None
+
+
 def config_dir() -> Path:
     """Thu muc luu cau hinh va khoa API cua nguoi dung."""
     if is_portable():

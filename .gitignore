@@ -25,6 +25,7 @@ build/
 build-*/
 dist/
 dist-*/
+/release/
 *.spec.bak
 *.egg-info/
 
@@ -32,6 +33,7 @@ dist-*/
 # Root-only: Git ignore is case-insensitive on Windows; a recursive Data/ rule
 # would accidentally hide the source package src/autosub_studio/data/.
 /Data/
+/db/
 *.db
 *.sqlite
 *.sqlite3
@@ -51,6 +53,7 @@ assets/cuda/
 assets/ffmpeg/
 assets/download/
 assets/models/
+/assets/piper/
 *.dll
 *.exe
 *.bin

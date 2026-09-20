@@ -200,8 +200,8 @@ Thành phần cần chuẩn bị trong thư mục `assets/` trước khi đóng 
 ```
 assets\ffmpeg\ffmpeg.exe
 assets\ffmpeg\ffprobe.exe
-assets\piper\piper.exe
-assets\piper\espeak-ng-data\
+assets\piper\piper.exe            # Tải từ https://github.com/rhasspy/piper/releases
+assets\piper\espeak-ng-data\      # Đi kèm trong gói Piper Windows release
 assets\models\faster-whisper-small\
 assets\cuda\*.dll
 ```
