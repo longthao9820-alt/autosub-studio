@@ -63,7 +63,6 @@ class TestSettingsMigration:
 
         loaded = Settings.load()
 
-        assert loaded.schema_version == 12
         assert loaded.schema_version == SCHEMA_VERSION
         assert loaded.asr_model == "base"
         assert loaded.tts_provider == "Local Voice"
@@ -97,7 +96,7 @@ class TestSettingsMigration:
         # Deterministic / repeat-safe round-trip
         saved_path = loaded.save()
         saved_raw = json.loads(saved_path.read_text(encoding="utf-8"))
-        assert saved_raw["schema_version"] == 12
+        assert saved_raw["schema_version"] == SCHEMA_VERSION
         assert saved_raw["tts_provider"] == "Local Voice"
         assert saved_raw["translate_provider"] == "AI Gateway"
         assert saved_raw["capcut_path"] == r"C:\Users\test\AppData\Local\CapCut"
@@ -108,7 +107,7 @@ class TestSettingsMigration:
         assert saved_raw["plugin_settings"] == {"enabled": True, "timeout": 42}
 
         reloaded = Settings.load()
-        assert reloaded.schema_version == 12
+        assert reloaded.schema_version == SCHEMA_VERSION
         assert reloaded.tts_provider == "Local Voice"
         assert reloaded.translate_provider == "AI Gateway"
         assert not hasattr(reloaded, "capcut_path")
@@ -126,7 +125,7 @@ class TestSettingsMigration:
             }
             Settings.config_path().write_text(json.dumps(v1_data), encoding="utf-8")
             loaded = Settings.load()
-            assert loaded.schema_version == 12
+            assert loaded.schema_version == SCHEMA_VERSION
             assert loaded.tts_provider == "Local Voice"
             assert loaded.translate_provider == "AI Gateway"
 

@@ -17,7 +17,7 @@ from autosub_studio.pipeline.steps import STEP_DUB
 from autosub_studio.services import gpu, media, paths
 from autosub_studio.services import settings as settings_service
 from autosub_studio.services.ffmpeg import CancelToken, MediaInfo
-from autosub_studio.services.settings import Settings, SubtitleStyle
+from autosub_studio.services.settings import SCHEMA_VERSION, Settings, SubtitleStyle
 from autosub_studio.services.tasks import CANCELLED, DONE, FAILED, PENDING, RUNNING, TaskManager
 
 
@@ -400,7 +400,7 @@ class TestSettings:
         assert upgraded.ocr_color_filter is False
         assert upgraded.ocr_drop_static is False
         saved = json.loads(Settings.config_path().read_text(encoding="utf-8"))
-        assert saved["schema_version"] == 12
+        assert saved["schema_version"] == SCHEMA_VERSION
 
     def test_schema_one_extreme_default_contrast_is_migrated(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path))
@@ -411,10 +411,10 @@ class TestSettings:
 
         upgraded = Settings.load()
 
-        assert upgraded.schema_version == 12
+        assert upgraded.schema_version == SCHEMA_VERSION
         assert upgraded.ocr_contrast == 0
         saved = json.loads(Settings.config_path().read_text(encoding="utf-8"))
-        assert saved["schema_version"] == 12
+        assert saved["schema_version"] == SCHEMA_VERSION
         assert saved["ocr_contrast"] == 0
 
     def test_schema_four_nts_auto_filters_are_removed(self, tmp_path, monkeypatch):
@@ -436,7 +436,7 @@ class TestSettings:
 
         upgraded = Settings.load()
 
-        assert upgraded.schema_version == 12
+        assert upgraded.schema_version == SCHEMA_VERSION
         assert upgraded.ocr_fps == 15.0
         assert upgraded.ocr_color_filter is False
         assert upgraded.ocr_text_color == ""
@@ -458,7 +458,7 @@ class TestSettings:
 
         upgraded = Settings.load()
 
-        assert upgraded.schema_version == 12
+        assert upgraded.schema_version == SCHEMA_VERSION
         assert upgraded.ocr_fps == 15.0
 
     def test_schema_six_low_nts_rate_is_restored_for_quality(self, tmp_path, monkeypatch):
@@ -477,7 +477,7 @@ class TestSettings:
 
         upgraded = Settings.load()
 
-        assert upgraded.schema_version == 12
+        assert upgraded.schema_version == SCHEMA_VERSION
         assert upgraded.ocr_fps == 15.0
 
     def test_style_round_trip(self):

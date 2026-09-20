@@ -2,57 +2,73 @@
 
 Cac buoc crop, loc mau/sang va nhan dien keyframe duoc xu ly cuc bo tren may.
 AI chi doc chu tren cac keyframe thuc su thay doi, khong upload toan bo moi frame.
-Moc thoi gian va gop dong do he thong timeline/cache san co quan ly.
+Moc thoi gian va gop dong dung he thong timeline/cache san co quan ly doc lap.
+Khong phu thuoc va khong goi bat ky ham nhan dang nao cua RapidOCR.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..core.models import Cue
+from ..core.ocr_common import (
+    Row,
+    _merge_exact_repeats,
+    _merge_rows,
+    static_texts,
+)
+from ..data.ocr_cache import (
+    load_frame_cache,
+    save_frame_batch,
+)
 from ..services import ai_gateway
 from ..services.settings import Settings
-from . import ocr
-from .ocr import Row
 from .ocr_filter import TextFilter
-
-if TYPE_CHECKING:
-    pass
 
 
 def _image_to_small_gray(
-    frame_path: Path, flt: TextFilter | None = None
-) -> tuple[Any, bytes | None]:
-    """Doc anh, ap dung bo loc neu co, tra ve anh thu nho xam de so sanh va bytes goc."""
+    frame_path: Path, flt: TextFilter | None = None, quality: int = 88
+) -> tuple[Any, bytes | None, str]:
+    """Doc anh, ap dung bo loc neu co, tra ve anh thu nho xam, bytes va content hash."""
+    img_bytes: bytes | None = None
+    small: Any = None
     try:
         import cv2
 
         img = cv2.imread(str(frame_path))
-        if img is None:
-            return None, None
-        if flt is not None and flt.touches_image:
-            from . import ocr_filter
+        if img is not None:
+            if flt is not None and flt.touches_image:
+                from . import ocr_filter
 
-            img = ocr_filter.adjust(img, flt.brightness, flt.contrast)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        small = cv2.resize(gray, (64, 64))
-        _, buf = cv2.imencode(".jpg", img)
-        return small, buf.tobytes()
+                img = ocr_filter.adjust(img, flt.brightness, flt.contrast)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            small = cv2.resize(gray, (64, 64))
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), max(1, min(100, int(quality)))]
+            _, buf = cv2.imencode(".jpg", img, encode_param)
+            img_bytes = buf.tobytes()
     except Exception:
         pass
 
-    try:
-        from PIL import Image
+    if img_bytes is None:
+        try:
+            import io
 
-        with Image.open(frame_path) as pil_img:
-            rgb = pil_img.convert("RGB")
-            small_pil = rgb.convert("L").resize((64, 64))
-            raw_bytes = frame_path.read_bytes()
-            return small_pil, raw_bytes
-    except Exception:
-        return None, None
+            from PIL import Image
+
+            with Image.open(frame_path) as pil_img:
+                rgb = pil_img.convert("RGB")
+                small = rgb.convert("L").resize((64, 64))
+                buf_io = io.BytesIO()
+                rgb.save(buf_io, format="JPEG", quality=max(1, min(100, int(quality))))
+                img_bytes = buf_io.getvalue()
+        except Exception:
+            pass
+
+    content_hash = hashlib.sha256(img_bytes).hexdigest() if img_bytes else ""
+    return small, img_bytes, content_hash
 
 
 def _is_blank_frame(small_img: Any) -> bool:
@@ -98,6 +114,12 @@ def read_frames_ai(
     thinking: str = "",
     consensus: int = 1,
     text_filter: TextFilter | None = None,
+    batch_size: int = 8,
+    diff_threshold: float = 4.0,
+    image_quality: int = 88,
+    timeout: float = 60.0,
+    max_retries: int = 3,
+    prompt: str = "",
     on_progress: Callable[[int], None] | None = None,
     on_log: Callable[[str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
@@ -127,14 +149,14 @@ def read_frames_ai(
     actual_thinking = thinking if thinking else default_thinking
 
     total = len(frames)
-    cached = ocr._load_frame_cache(cache_path, cache_key, total)
+    cached = load_frame_cache(cache_path, cache_key, total)
     rows_by_index: dict[int, list[Row]] = dict(cached)
     missing_indices = [i for i in range(total) if i not in rows_by_index]
 
     if on_log:
         if missing_indices:
             on_log(
-                f"OCR AI ({actual_model}): xử lý {len(missing_indices)}/{total} khung hinh "
+                f"OCR AI ({actual_model}): xử lý {len(missing_indices)}/{total} khung hình "
                 "(chỉ upload keyframe mới)..."
             )
         else:
@@ -142,7 +164,8 @@ def read_frames_ai(
         if cached:
             on_log(f"Dùng lại cache OCR AI: {len(cached)}/{total} khung hình.")
 
-    fresh: dict[int, list[Row]] = {}
+    batch_rows: dict[int, list[Row]] = {}
+    batch_hashes: dict[int, str] = {}
     last_keyframe_small: Any = None
     last_keyframe_rows: list[Row] = []
 
@@ -151,43 +174,71 @@ def read_frames_ai(
             break
 
         frame_path = frames[index]
-        small, img_bytes = _image_to_small_gray(frame_path, text_filter)
+        small, img_bytes, content_hash = _image_to_small_gray(
+            frame_path, text_filter, quality=image_quality
+        )
 
         if _is_blank_frame(small):
-            fresh[index] = []
+            current_rows: list[Row] = []
             last_keyframe_small = small
             last_keyframe_rows = []
-        elif last_keyframe_small is not None and _diff_metric(small, last_keyframe_small) < 4.0:
+        elif (
+            last_keyframe_small is not None
+            and _diff_metric(small, last_keyframe_small) < float(diff_threshold)
+        ):
             # Khung hinh giong het hoac rat gan voi keyframe truoc do -> tai su dung cuc bo
-            fresh[index] = list(last_keyframe_rows)
+            current_rows = list(last_keyframe_rows)
         else:
             # Keyframe moi -> goi AI Gateway doc chu
             text = ""
             if img_bytes:
-                text = ai_gateway.ocr_image_with_ai(
-                    ep,
-                    key,
-                    model=actual_model,
-                    image_data=img_bytes,
-                    thinking=actual_thinking,
-                )
+                retries = max(0, int(max_retries))
+                for attempt in range(retries + 1):
+                    try:
+                        text = ai_gateway.ocr_image_with_ai(
+                            ep,
+                            key,
+                            model=actual_model,
+                            image_data=img_bytes,
+                            thinking=actual_thinking,
+                            timeout=float(timeout),
+                        )
+                        break
+                    except Exception as exc:
+                        if attempt == retries:
+                            raise
+                        if on_log:
+                            on_log(
+                                f"Lỗi gọi AI Gateway (lần {attempt + 1}/{retries + 1}): {exc}. "
+                                "Đang thử lại..."
+                            )
 
             clean_text = text.strip()
             if clean_text:
-                rows = [Row((0.0, 0.0), clean_text, 1.0, None)]
+                current_rows = [Row((0.0, 0.0), clean_text, 1.0, None)]
             else:
-                rows = []
+                current_rows = []
 
-            fresh[index] = rows
             last_keyframe_small = small
-            last_keyframe_rows = rows
+            last_keyframe_rows = current_rows
+
+        batch_rows[index] = current_rows
+        batch_hashes[index] = content_hash
+        rows_by_index[index] = current_rows
+
+        if len(batch_rows) >= max(1, int(batch_size)):
+            save_frame_batch(cache_path, cache_key, batch_rows, batch_hashes)
+            batch_rows.clear()
+            batch_hashes.clear()
 
         if on_progress:
             completed = len(cached) + done + 1
             on_progress(max(0, min(96, int(completed / total * 96))))
 
-    rows_by_index.update(fresh)
-    ocr._save_frame_cache(cache_path, cache_key, fresh)
+    if batch_rows:
+        save_frame_batch(cache_path, cache_key, batch_rows, batch_hashes)
+        batch_rows.clear()
+        batch_hashes.clear()
 
     per_frame: list[list[Row]] = []
     for index in range(total):
@@ -197,14 +248,14 @@ def read_frames_ai(
 
     ignore: frozenset[str] = frozenset()
     if text_filter is not None and text_filter.drop_static:
-        ignore = ocr.static_texts(per_frame)
+        ignore = static_texts(per_frame)
         if ignore and on_log:
             shown = ", ".join(sorted(ignore)[:4])
             on_log(f"Bỏ {len(ignore)} dòng chữ cố định: {shown}")
 
     processed = len(per_frame)
     used_stamps = list(stamps[:processed]) if stamps is not None else None
-    cues = ocr._merge_rows(
+    cues = _merge_rows(
         per_frame,
         fps=fps,
         start_offset=start_offset,
@@ -216,7 +267,7 @@ def read_frames_ai(
         consensus=consensus,
         on_log=on_log,
     )
-    cues = ocr._merge_exact_repeats(cues, max_gap=0.2)
+    cues = _merge_exact_repeats(cues, max_gap=0.2)
     if on_progress:
         on_progress(100)
     return cues

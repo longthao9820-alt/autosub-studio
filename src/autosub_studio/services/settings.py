@@ -13,7 +13,7 @@ from .paths import config_dir, default_workspace, is_portable, write_text_atomic
 
 CONFIG_NAME = "config.json"
 SECRETS_NAME = "secrets.dat"
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _is_moved_portable_workspace(value: str) -> bool:
@@ -175,6 +175,16 @@ class Settings:
     ai_model_prime: str = "prime"
     ai_thinking_prime: str = "medium"
     ocr_ai_model: str = "sub"
+    ocr_ai_batch_size: int = 8
+    ocr_ai_max_concurrency: int = 4
+    ocr_ai_timeout: int = 60
+    ocr_ai_max_retries: int = 3
+    ocr_ai_image_quality: int = 88
+    ocr_ai_diff_threshold: float = 4.0
+    ocr_ai_consensus_mode: str = "disabled"
+    ocr_ai_consensus_frames: int = 1
+    ocr_ai_prompt_version: str = "v1"
+    ocr_ai_custom_prompt: str = ""
 
     # Export & Update
     output_folder: str = ""
@@ -383,6 +393,39 @@ class Settings:
                         "claude",
                     }:
                         prof["translate_provider"] = "AI Gateway"
+        if old_schema < 13:
+            if not getattr(settings, "ocr_ai_batch_size", 0) or settings.ocr_ai_batch_size <= 0:
+                settings.ocr_ai_batch_size = 8
+            if (
+                not getattr(settings, "ocr_ai_max_concurrency", 0)
+                or settings.ocr_ai_max_concurrency <= 0
+            ):
+                settings.ocr_ai_max_concurrency = 4
+            if not getattr(settings, "ocr_ai_timeout", 0) or settings.ocr_ai_timeout <= 0:
+                settings.ocr_ai_timeout = 60
+            if not hasattr(settings, "ocr_ai_max_retries") or settings.ocr_ai_max_retries < 0:
+                settings.ocr_ai_max_retries = 3
+            if (
+                not getattr(settings, "ocr_ai_image_quality", 0)
+                or settings.ocr_ai_image_quality <= 0
+            ):
+                settings.ocr_ai_image_quality = 88
+            if (
+                not getattr(settings, "ocr_ai_diff_threshold", 0.0)
+                or settings.ocr_ai_diff_threshold <= 0.0
+            ):
+                settings.ocr_ai_diff_threshold = 4.0
+            if not getattr(settings, "ocr_ai_consensus_mode", ""):
+                settings.ocr_ai_consensus_mode = "disabled"
+            if (
+                not getattr(settings, "ocr_ai_consensus_frames", 0)
+                or settings.ocr_ai_consensus_frames <= 0
+            ):
+                settings.ocr_ai_consensus_frames = 1
+            if not getattr(settings, "ocr_ai_prompt_version", ""):
+                settings.ocr_ai_prompt_version = "v1"
+            if not hasattr(settings, "ocr_ai_custom_prompt"):
+                settings.ocr_ai_custom_prompt = ""
         # tts_provider always Local Voice; old settings migrate prompt via empty local_voice
         if settings.tts_provider != "Local Voice":
             settings.tts_provider = "Local Voice"

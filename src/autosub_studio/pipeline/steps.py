@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import hashlib
 import json
 import os
 import shutil
@@ -14,11 +13,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from ..core import editing, formats
+from ..core import editing, formats, ocr_common
 from ..core.models import Cue, SubtitleDoc
+from ..data import ocr_cache
 from ..data.project import ProjectData, ProjectStore
 from ..providers import asr, diarize, ocr, ocr_ai, ocr_filter, separate, translate, tts
-from ..services import gpu, media
+from ..services import ai_gateway, gpu, media
 from ..services.ffmpeg import CancelledError, CancelToken, FFmpeg, FFmpegError
 from ..services.paths import safe_name, unique_path
 from ..services.settings import Settings, SubtitleStyle
@@ -312,21 +312,7 @@ def _ocr_cache_key(
     text_filter: ocr_filter.TextFilter,
 ) -> str:
     """Nhan dien dung video + vung + cau hinh; doi mot muc thi khong dung cache cu."""
-    try:
-        stat = video.stat()
-        file_identity = [str(video.resolve()), stat.st_size, stat.st_mtime_ns]
-    except OSError:
-        file_identity = [str(video), 0, 0]
-    payload = {
-        "video": file_identity,
-        "region": list(region),
-        "fps": round(float(fps), 6),
-        "profile": settings.ocr_server or settings.ocr_mode,
-        "confidence": settings.ocr_confidence,
-        "filter": dict(vars(text_filter)),
-    }
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=list)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return ocr_cache.make_local_ocr_cache_key(video, region, fps, settings, text_filter)
 
 
 def text_filter_for(settings: Settings) -> ocr_filter.TextFilter:
@@ -353,12 +339,16 @@ def _remember_filter(pc: PipelineContext, flt: ocr_filter.TextFilter) -> None:
         pc.settings.save()
 
 
-def _prepare_filter(pc: PipelineContext, frames: list[Path]) -> ocr_filter.TextFilter:
+def _prepare_filter(
+    pc: PipelineContext, frames: list[Path], is_ai: bool | None = None
+) -> ocr_filter.TextFilter:
     """Chuan bi bo loc tuy chon truoc khi doc.
 
     NTS khong tu loc mau trong cau hinh mac dinh. Mau chi duoc ap dung khi
     nguoi dung bat bo loc va da chi dinh mot mau cu the.
     """
+    if is_ai is None:
+        is_ai = is_ai_ocr(pc.settings)
     flt = text_filter_for(pc.settings)
     if flt.use_color and not flt.rgb:
         flt.use_color = False
@@ -367,6 +357,8 @@ def _prepare_filter(pc: PipelineContext, frames: list[Path]) -> ocr_filter.TextF
         if flt.active:
             pc.log("Thieu thu vien xu ly anh nen khong loc duoc theo mau chu.")
         return ocr_filter.TextFilter(use_color=False, drop_static=False)
+    if is_ai:
+        return flt
     profile = pc.settings.ocr_server or pc.settings.ocr_mode
     # Voi che do NTS, neu da do duoc mau/chiều cao o lan truoc thi khong can
     # OCR lai 14 anh mau. Chu dan co dinh van duoc loai tren toan bo video o
@@ -450,28 +442,67 @@ def step_ocr(pc: PipelineContext) -> str:
             raise StepError("Chưa cấu hình Endpoint AI Gateway cho OCR AI.")
         if not key.strip():
             raise StepError("Chưa có khóa API cho AI Gateway.")
+        model_alias = getattr(s, "ocr_ai_model", "sub") or "sub"
+        actual_model, default_thinking = ai_gateway.resolve_model(model_alias, s)
+        cache_path = (
+            (Path(pc.project.folder) / "ocr_cache.sqlite3")
+            if s.ocr_cache_enabled
+            else None
+        )
+        cache_key = (
+            ocr_cache.make_ai_ocr_cache_key(
+                video=video,
+                region=region,
+                fps=fps,
+                endpoint=s.ai_endpoint,
+                model_alias=model_alias,
+                actual_model=actual_model,
+                thinking=default_thinking,
+                prompt_version=getattr(s, "ocr_ai_prompt_version", "v1") or "v1",
+                custom_prompt=getattr(s, "ocr_ai_custom_prompt", "") or "",
+                diff_threshold=getattr(s, "ocr_ai_diff_threshold", 4.0),
+                image_quality=getattr(s, "ocr_ai_image_quality", 88),
+                consensus_mode=getattr(s, "ocr_ai_consensus_mode", "disabled"),
+                consensus_frames=getattr(s, "ocr_ai_consensus_frames", 1),
+            )
+            if s.ocr_cache_enabled
+            else ""
+        )
         cues = ocr_ai.read_frames_ai(
             frames,
             fps=fps,
             stamps=stamps,
             similarity=s.ocr_similarity,
             min_duration=s.ocr_min_duration,
-            model=getattr(s, "ocr_ai_model", "sub") or "sub",
+            model=model_alias,
             endpoint=s.ai_endpoint,
             api_key=key,
+            thinking=default_thinking,
             consensus=s.ocr_consensus,
             text_filter=flt,
+            batch_size=getattr(s, "ocr_ai_batch_size", 8),
+            diff_threshold=getattr(s, "ocr_ai_diff_threshold", 4.0),
+            image_quality=getattr(s, "ocr_ai_image_quality", 88),
+            timeout=float(getattr(s, "ocr_ai_timeout", 60.0)),
+            max_retries=getattr(s, "ocr_ai_max_retries", 3),
+            prompt=getattr(s, "ocr_ai_custom_prompt", "") or "",
             on_progress=lambda p: pc.progress(43 + int(p * weight)),
             on_log=pc.log,
             should_cancel=lambda: pc.token.cancelled,
-            cache_path=(Path(pc.project.folder) / "ocr_cache.sqlite3")
-            if s.ocr_cache_enabled
-            else None,
-            cache_key=_ocr_cache_key(video, region, fps, s, flt)
-            if s.ocr_cache_enabled
-            else "",
+            cache_path=cache_path,
+            cache_key=cache_key,
         )
     else:
+        cache_path = (
+            (Path(pc.project.folder) / "ocr_cache.sqlite3")
+            if s.ocr_cache_enabled
+            else None
+        )
+        cache_key = (
+            ocr_cache.make_local_ocr_cache_key(video, region, fps, s, flt)
+            if s.ocr_cache_enabled
+            else ""
+        )
         cues = ocr.read_frames(
             frames,
             fps=fps,
@@ -487,12 +518,8 @@ def step_ocr(pc: PipelineContext) -> str:
             on_progress=lambda p: pc.progress(43 + int(p * weight)),
             on_log=pc.log,
             should_cancel=lambda: pc.token.cancelled,
-            cache_path=(Path(pc.project.folder) / "ocr_cache.sqlite3")
-            if s.ocr_cache_enabled
-            else None,
-            cache_key=_ocr_cache_key(video, region, fps, s, flt)
-            if s.ocr_cache_enabled
-            else "",
+            cache_path=cache_path,
+            cache_key=cache_key,
         )
     pc.check()
     if not cues:
@@ -525,9 +552,9 @@ def step_ocr(pc: PipelineContext) -> str:
         pc.check()
         if not pc.settings.keep_temp:
             shutil.rmtree(window_dir, ignore_errors=True)
-    cues = ocr.clean_cues(cues, drop_chars=s.ocr_drop_chars, drop_words=s.ocr_drop_words)
+    cues = ocr_common.clean_cues(cues, drop_chars=s.ocr_drop_chars, drop_words=s.ocr_drop_words)
     if s.ocr_continuous:
-        cues = ocr.make_continuous(cues)
+        cues = ocr_common.make_continuous(cues)
     if not cues:
         raise StepError("Sau khi loc bo ky tu rac thi khong con cau nao.")
     pc.project.doc.cues = cues
@@ -547,6 +574,10 @@ def step_ocr_measure(pc: PipelineContext) -> str:
     Lay vai khung hinh rai deu tu dau den cuoi video, doc thu, roi ghi lai mau
     chu va khoang chieu cao vao cai dat de buoc lay sub dung ngay.
     """
+    if is_ai_ocr(pc.settings):
+        raise StepError(
+            "Chế độ OCR AI không hỗ trợ đo màu và chiều cao chữ (chỉ áp dụng cho OCR nội bộ)."
+        )
     if not ocr.is_available():
         raise StepError(ocr.install_hint())
     if not ocr_filter.available():

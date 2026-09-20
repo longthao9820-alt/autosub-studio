@@ -7,32 +7,118 @@ mau va bo chu dung yen la tuy chon rieng khi vung khoanh con logo/quang cao.
 from __future__ import annotations
 
 import contextlib
-import difflib
-import json
-import re
-import sqlite3
 import threading
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, NamedTuple
 
 from ..core.models import Cue
+from ..core.ocr_common import (
+    Rect,
+    Row,
+    _area,
+    _best_caption,
+    _better_read,
+    _box_order,
+    _box_rect,
+    _covered,
+    _drop_flicker,
+    _drop_overlaps,
+    _is_cjk,
+    _join_parts,
+    _merge_exact_repeats,
+    _merge_rows,
+    _overlap_x,
+    _parse_row,
+    _reading_order,
+    _same_caption_version,
+    _same_line,
+    _separator,
+    _similar,
+    _stabilize_reads,
+    _text_ratio,
+    _trim_repeat,
+    clean_cues,
+    is_ignored,
+    join_rows,
+    make_continuous,
+    static_texts,
+)
+from ..data.ocr_cache import (
+    load_frame_cache as _load_frame_cache,
+)
+from ..data.ocr_cache import (
+    save_frame_cache as _save_frame_cache,
+)
 from ..services.gpu import onnx_cuda_ready
 from ..services.paths import app_root, bundled_dir
 from . import ocr_filter
 from .ocr_filter import TextFilter
 
-_rapid_ratio: Any = None
-try:
-    from rapidfuzz.fuzz import ratio as _rapid_ratio_impl
+__all__ = [
+    "NTS_FAST_MODE",
+    "NTS_FAST_SERVER",
+    "OCRError",
+    "OCRUnavailable",
+    "Probe",
+    "Rect",
+    "Row",
+    "_area",
+    "_best_caption",
+    "_better_read",
+    "_box_order",
+    "_box_rect",
+    "_build_engine",
+    "_covered",
+    "_drop_flicker",
+    "_drop_overlaps",
+    "_engine_module",
+    "_engine_rows",
+    "_engine_uses_cuda",
+    "_first_match",
+    "_gpu_frame_task",
+    "_is_cjk",
+    "_join_parts",
+    "_load_engine",
+    "_load_frame_cache",
+    "_merge_exact_repeats",
+    "_merge_rows",
+    "_nts_model_paths",
+    "_overlap_x",
+    "_parse_row",
+    "_quality_key",
+    "_read_frames_gpu_parallel",
+    "_reading_order",
+    "_rect_points",
+    "_reread_subtitle_lines",
+    "_same_caption_version",
+    "_same_line",
+    "_save_frame_cache",
+    "_separator",
+    "_similar",
+    "_spread",
+    "_stabilize_reads",
+    "_text_ratio",
+    "_trim_repeat",
+    "apply_probe",
+    "clean_cues",
+    "frame_rows",
+    "gpu_available",
+    "install_hint",
+    "is_available",
+    "is_ignored",
+    "is_nts_profile",
+    "join_rows",
+    "make_continuous",
+    "probe_frames",
+    "read_frame",
+    "read_frames",
+    "refine_boundaries",
+    "static_texts",
+]
 
-    _rapid_ratio = _rapid_ratio_impl
-except ImportError:  # ban ma nguon toi thieu van co duong lui thuần Python
-    pass
-
-Rect = tuple[float, float, float, float]
 _OCR_THREAD_LOCAL = threading.local()
 # Bon worker cho tong toan ung dung: du mot project hay nhieu project cung
 # chay thi GPU cung khong bi tao vo han session va het bo nho. Cac thread song
@@ -49,15 +135,6 @@ _NTS_MODEL_FILES = {
     "cls": "ch_ppocr_mobile_v2.0_cls_infer.onnx",
     "rec": "ch_PP-OCRv4_rec_infer.onnx",
 }
-
-
-class Row(NamedTuple):
-    """Mot vung chu doc duoc tren khung hinh."""
-
-    order: tuple[float, float]
-    text: str
-    score: float
-    rect: Rect | None
 
 
 class Probe(NamedTuple):
@@ -362,83 +439,6 @@ def _read_frames_gpu_parallel(
     return output, gpu_failed.is_set()
 
 
-def _load_frame_cache(
-    cache_path: str | Path | None, cache_key: str, total: int
-) -> dict[int, list[Row]]:
-    """Doc ket qua OCR tung frame tu SQLite; tep hong thi coi nhu cache rong."""
-    if not cache_path or not cache_key:
-        return {}
-    path = Path(cache_path)
-    if not path.is_file():
-        return {}
-    try:
-        with sqlite3.connect(path) as connection:
-            rows = connection.execute(
-                "SELECT frame_idx, rows_json FROM frames WHERE cache_key=? AND frame_idx<?",
-                (cache_key, int(total)),
-            ).fetchall()
-    except (OSError, sqlite3.Error):
-        return {}
-    out: dict[int, list[Row]] = {}
-    for index, raw in rows:
-        try:
-            data = json.loads(raw)
-            parsed = [
-                Row(
-                    (float(item[0][0]), float(item[0][1])),
-                    str(item[1]),
-                    float(item[2]),
-                    (
-                        (
-                            float(item[3][0]),
-                            float(item[3][1]),
-                            float(item[3][2]),
-                            float(item[3][3]),
-                        )
-                        if item[3] is not None
-                        else None
-                    ),
-                )
-                for item in data
-            ]
-        except (TypeError, ValueError, IndexError, json.JSONDecodeError):
-            continue
-        out[int(index)] = parsed
-    return out
-
-
-def _save_frame_cache(
-    cache_path: str | Path | None,
-    cache_key: str,
-    rows_by_index: dict[int, list[Row]],
-) -> None:
-    """Luu ca frame rong de lan chay sau biet no da duoc OCR."""
-    if not cache_path or not cache_key or not rows_by_index:
-        return
-    path = Path(cache_path)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path) as connection:
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS frames ("
-                "cache_key TEXT NOT NULL, frame_idx INTEGER NOT NULL, rows_json TEXT NOT NULL, "
-                "PRIMARY KEY(cache_key, frame_idx))"
-            )
-            payload = []
-            for index, rows in rows_by_index.items():
-                encoded = [
-                    [list(row.order), row.text, row.score, list(row.rect) if row.rect else None]
-                    for row in rows
-                ]
-                payload.append((cache_key, int(index), json.dumps(encoded, ensure_ascii=False)))
-            connection.executemany(
-                "INSERT OR REPLACE INTO frames(cache_key, frame_idx, rows_json) VALUES(?,?,?)",
-                payload,
-            )
-    except (OSError, sqlite3.Error):
-        return
-
-
 def read_frames(
     frames: Sequence[Path],
     *,
@@ -556,265 +556,6 @@ def read_frames(
     return cues
 
 
-def _merge_exact_repeats(cues: list[Cue], *, max_gap: float = 0.2) -> list[Cue]:
-    """Noi lai mot caption bi OCR rot vai frame o giua.
-
-    Detector co the tra rong trong 1-2 frame chuyen dong du caption tren hinh
-    khong doi. Neu khong noi lai, mot cau se bi tach thanh nhieu dong SRT trung
-    nhau. Chi noi khi noi dung giong het va khoang trong rat ngan; hai caption
-    khac nhau/gan giong nhau van duoc giu rieng.
-    """
-    if len(cues) < 2:
-        return cues
-    out = [cues[0]]
-    for cue in cues[1:]:
-        previous = out[-1]
-        gap = cue.start - previous.end
-        if cue.text == previous.text and 0 <= gap <= max(0.0, float(max_gap)):
-            previous.end = max(previous.end, cue.end)
-            continue
-        out.append(cue)
-    return out
-
-
-def _merge_rows(
-    per_frame: list[list[Row]],
-    *,
-    fps: float,
-    start_offset: float,
-    stamps: Sequence[float] | None,
-    total: int,
-    similarity: float,
-    min_duration: float,
-    ignore: frozenset[str],
-    consensus: int = 1,
-    on_log: Callable[[str], None] | None,
-) -> list[Cue]:
-    """Gop cac khung hinh doc ra chu giong nhau thanh tung cau co dau va cuoi."""
-    step = 1.0 / max(0.2, float(fps))
-    exact = list(stamps) if stamps is not None and len(stamps) == total else []
-    reads = [join_rows([r for r in rows if not is_ignored(r.text, ignore)]) for rows in per_frame]
-    reads = _stabilize_reads(reads, similarity, consensus)
-    reads = _drop_flicker(reads, similarity)
-    cues: list[Cue] = []
-    current_text = ""
-    variants: list[tuple[str, float]] = []
-    current_start = 0.0
-
-    def flush(end: float) -> None:
-        if not current_text or end - current_start < min_duration:
-            return
-        best_text, _best_score = _best_caption(variants, similarity)
-        cues.append(Cue(start=current_start, end=end, text=best_text or current_text))
-
-    for i, (text, score) in enumerate(reads):
-        stamp = exact[i] if exact else start_offset + i * step
-        if _same_caption_version(text, current_text, similarity):
-            if text:
-                variants.append((text, score))
-                current_text = _best_caption(variants, similarity)[0]
-            continue
-        flush(stamp)
-        current_text = text
-        variants = [(text, score)] if text else []
-        current_start = stamp
-        if on_log and text:
-            on_log(f"{stamp:7.2f}s  {text[:60]}")
-
-    if current_text:
-        end = (exact[-1] + step) if exact else (start_offset + total * step)
-        flush(end)
-    return cues
-
-
-def _best_caption(
-    reads: Sequence[tuple[str, float]], similarity: float
-) -> tuple[str, float]:
-    """Chon ban chu duoc nhieu khung hinh ung ho nhat.
-
-    Mot diem tin cay cao o duy nhat mot khung co the la net nhoe doc nham.
-    NTS co nhieu mau anh cua cung mot cau, nen uu tien ban lap lai nhieu lan;
-    khi so lan bang nhau moi xet do gan voi cac ban con lai, diem tin cay va
-    do day du cua cau.
-    """
-    items = [(text, float(score)) for text, score in reads if text]
-    if not items:
-        return "", 0.0
-    exact: dict[str, list[float]] = {}
-    for text, score in items:
-        exact.setdefault(text, []).append(score)
-
-    best_text = items[0][0]
-    best_key: tuple[float, ...] | None = None
-    for text, scores in exact.items():
-        ratios = [_text_ratio(text, other) for other, _s in items]
-        fuzzy = sum(1 for ratio in ratios if ratio >= similarity)
-        key = (
-            float(len(scores)),
-            float(fuzzy),
-            sum(ratios),
-            sum(scores) / len(scores),
-            float(len(text)),
-        )
-        if best_key is None or key > best_key:
-            best_text, best_key = text, key
-    return best_text, sum(exact[best_text]) / len(exact[best_text])
-
-
-def is_ignored(text: str, ignore: Iterable[str]) -> bool:
-    """Dong chu nay co nam trong danh sach can bo khong.
-
-    So gan giong chu khong so bang nhau: cung mot logo nhung moi khung hinh bo
-    doc chu lai tra ve mot kieu ("TIN TUC 24H", "TINTUC24H"...).
-    """
-    if not text:
-        return False
-    key = text.casefold()
-    for item in ignore:
-        if key == item:
-            return True
-        if abs(len(key) - len(item)) > max(4, len(item) // 2):
-            continue  # dai ngan qua khac nhau thi khong phai cung mot dong
-        if _similar(key, item, 0.85):
-            return True
-    return False
-
-
-SPECK_CHARS = 12  # chu ngan hon muc nay ma chi lo ra mot khung thi coi la doc nham
-
-
-def _drop_flicker(reads: list[tuple[str, float]], similarity: float) -> list[tuple[str, float]]:
-    """Bo cai nhay mot khung: chu la chi lo ra dung mot khung roi mat ngay.
-
-    Phu de bao gio cung nam tren hinh vai khung lien nhau. Co hai kieu nhay:
-
-    - Mot khung doc ra khac han hai khung ke ben ma hai khung do lai giong nhau:
-      khung giua la doc nham (bat phai net chu khac mau, hoac chu bi nhoe mot
-      nhip). Lay lai ket qua cua khung ben canh cho khoi tach thanh cau rieng.
-    - Mot manh chu vun vai ky tu lo ra dung mot khung, hai ben la hai cau khac
-      nhau: day la rac o cho chuyen canh, bo di.
-    """
-    if len(reads) < 3:
-        return reads
-    out = list(reads)
-    for i in range(1, len(reads) - 1):
-        before, middle, after = reads[i - 1], out[i], reads[i + 1]
-        # Khung rong co the la khoang ngat that giua hai cau gan giong nhau
-        # (vi du "那强哥在呢" -> rong -> "强哥在呢"). Khong tu dien chu vao
-        # khung rong, neu khong hai cau se bi ghep lam mot va mat mot subtitle.
-        if not middle[0]:
-            continue
-        if _similar(middle[0], before[0], similarity) or _similar(middle[0], after[0], similarity):
-            continue
-        if before[0] and after[0] and _similar(before[0], after[0], similarity):
-            out[i] = before if _better_read(before[0], before[1], after[0], after[1]) else after
-            continue
-        longest = max(len(before[0]), len(after[0]))
-        if middle[0] and len(middle[0]) < SPECK_CHARS and len(middle[0]) * 2 < longest:
-            out[i] = ("", 0.0)  # manh chu vun giua hai cau, khong phai loi thoai
-    return out
-
-
-def _stabilize_reads(
-    reads: list[tuple[str, float]], similarity: float, votes: int = 3
-) -> list[tuple[str, float]]:
-    """Chon ban chu duoc nhieu khung gan nhau ung ho de giam loi tung hinh.
-
-    Phu de video thuong dung yen trong nhieu khung. Neu mot khung doc sai mot
-    chu Han, cac khung truoc/sau van cho ta biet ban nao dang tin hon. Khong
-    dien vao khung rong de tranh keo dai phu de qua diem xuat hien/bien mat.
-    """
-    need = max(1, min(5, int(votes)))
-    if need <= 1 or len(reads) < need:
-        return reads
-    radius = max(1, need - 1)
-    out = list(reads)
-    for i, current in enumerate(reads):
-        if not current[0]:
-            continue
-        nearby = [
-            item
-            for item in reads[max(0, i - radius) : min(len(reads), i + radius + 1)]
-            if item[0]
-        ]
-        best_group: list[tuple[str, float]] = []
-        for candidate in nearby:
-            group = [item for item in nearby if _similar(item[0], candidate[0], similarity)]
-            if len(group) > len(best_group) or (
-                len(group) == len(best_group)
-                and group
-                and sum(s for _t, s in group) > sum(s for _t, s in best_group)
-            ):
-                best_group = group
-        if len(best_group) < need:
-            continue
-        chosen = best_group[0]
-        for candidate in best_group[1:]:
-            if _better_read(candidate[0], candidate[1], chosen[0], chosen[1]):
-                chosen = candidate
-        out[i] = chosen
-    return out
-
-
-def static_texts(
-    per_frame: list[list[Row]],
-    *,
-    ratio: float = 0.6,
-    min_frames: int = 8,
-    spread_x: float = 14.0,
-    spread_y: float = 10.0,
-) -> frozenset[str]:
-    """Cac dong chu dung im mot cho suot video: logo, watermark, chu quang cao.
-
-    Phu de thi doi lien tuc va moi dong dai ngan khac nhau nen khung chu xe
-    dich luon. Con logo hay dong chu dan san thi nam dung mot cho tu dau den
-    cuoi va noi dung khong doi. Ta gom cac khung chu theo vi tri, cho nao co
-    mat o phan lon khung hinh ma noi dung van gan nhu y nguyen thi bo di.
-    """
-    frames = len(per_frame)
-    if frames < min_frames:
-        return frozenset()
-    spots: list[dict[str, Any]] = []
-    for index, rows in enumerate(per_frame):
-        for row in rows:
-            if row.rect is None or len(row.text) < 2:
-                continue
-            x, y = row.rect[0], row.rect[1]
-            for spot in spots:
-                if abs(x - spot["x"]) <= spread_x and abs(y - spot["y"]) <= spread_y:
-                    spot["frames"].add(index)
-                    spot["texts"].append(row.text)
-                    break
-            else:
-                spots.append({"x": x, "y": y, "frames": {index}, "texts": [row.text]})
-    need = max(min_frames, int(frames * ratio))
-    out: set[str] = set()
-    for spot in spots:
-        if len(spot["frames"]) < need:
-            continue
-        texts: list[str] = spot["texts"]
-        common = max(set(texts), key=texts.count)
-        if texts.count(common) < len(texts) * 0.55:
-            continue  # cho nay chu doi noi dung lien tuc, la loi thoai
-        alike = sum(1 for t in texts if _similar(t, common, 0.7))
-        if alike < len(texts) * 0.75:
-            continue
-        out.update(t.casefold() for t in texts)
-    return frozenset(out)
-
-
-def _better_read(text: str, score: float, current: str, current_score: float) -> bool:
-    """Ban doc nao dang tin hon: uu tien do tin cay, ngang nhau thi lay ban day du hon."""
-    if not current:
-        return True
-    # Voi PP-OCRv4, chenh 1,5 diem phan tram da du de phan biet mot ban sach
-    # (0,998) voi ban chen nham mot chu (0,971). Nguong 3% cu da uu tien ban
-    # sai chi vi no dai hon mot ky tu.
-    if abs(score - current_score) > 0.015:
-        return score > current_score
-    return len(text) > len(current)
-
-
 def refine_boundaries(
     cues: list[Cue],
     *,
@@ -837,7 +578,9 @@ def refine_boundaries(
     do cu, tim dung khung ma chu bat dau hien ra va khung ma chu bien mat.
     """
     if not cues or coarse_step <= 0:
-        return cues
+    return cues
+
+
     engine = _load_engine(bool(use_gpu) and gpu_available(), profile, batch_size)
     total = max(1, len(cues))
 
@@ -991,85 +734,6 @@ def apply_probe(flt: TextFilter, probe: Probe) -> TextFilter:
         flt.min_height = probe.min_height
         flt.max_height = probe.max_height
     return flt
-
-
-# --------------------------------------------------------------------------- loc
-
-
-def clean_cues(cues: list[Cue], *, drop_chars: str = "", drop_words: str = "") -> list[Cue]:
-    """Loc bo ky tu rac va cac tu khong muon giu trong ket qua doc chu."""
-    chars = [c.strip() for c in drop_chars.split(",") if c.strip()]
-    words = [w.strip() for w in drop_words.split(",") if w.strip()]
-    out: list[Cue] = []
-    for cue in cues:
-        text = cue.text
-        for item in chars:
-            text = text.replace(item, "")
-        for item in words:
-            text = re.sub(re.escape(item), "", text, flags=re.IGNORECASE)
-        text = " ".join(text.split())
-        if text:
-            out.append(Cue(cue.start, cue.end, text, cue.translation, cue.speaker))
-    return out
-
-
-def make_continuous(cues: list[Cue], max_gap: float = 1.5) -> list[Cue]:
-    """Keo dai moi cau den sat cau sau de phu de khong bi nhay ngat quang."""
-    for current, following in zip(cues, cues[1:], strict=False):
-        gap = following.start - current.end
-        if 0 < gap <= max_gap:
-            current.end = following.start
-    return cues
-
-
-def _box_rect(row) -> Rect | None:
-    """Hinh chu nhat bao quanh mot vung chu doc duoc: (trai, tren, phai, duoi)."""
-    try:
-        points = row[0]
-        xs = [float(p[0]) for p in points]
-        ys = [float(p[1]) for p in points]
-    except (IndexError, TypeError, ValueError):
-        return None
-    if not xs or not ys:
-        return None
-    return (min(xs), min(ys), max(xs), max(ys))
-
-
-def _covered(small, big) -> float:
-    """Phan tram dien tich cua vung nho nam long trong vung lon."""
-    if small is None or big is None:
-        return 0.0
-    sx1, sy1, sx2, sy2 = small
-    bx1, by1, bx2, by2 = big
-    area = max(0.0, sx2 - sx1) * max(0.0, sy2 - sy1)
-    if area <= 0:
-        return 0.0
-    over_w = max(0.0, min(sx2, bx2) - max(sx1, bx1))
-    over_h = max(0.0, min(sy2, by2) - max(sy1, by1))
-    return (over_w * over_h) / area
-
-
-def _box_order(row) -> tuple[float, float]:
-    """Sap cac dong chu doc duoc theo tren xuong duoi, trai sang phai."""
-    try:
-        points = row[0]
-        ys = [float(p[1]) for p in points]
-        xs = [float(p[0]) for p in points]
-    except (IndexError, TypeError, ValueError):
-        return (0.0, 0.0)
-    return (min(ys), min(xs))
-
-
-def _parse_row(row, min_confidence: float) -> Row | None:
-    """Doi mot dong ket qua tho cua bo doc chu thanh Row, bo dong kem tin cay."""
-    try:
-        text = str(row[1]).strip()
-        score = float(row[2]) if len(row) > 2 else 1.0
-    except (IndexError, TypeError, ValueError):
-        return None
-    if not text or score < min_confidence:
-        return None
-    return Row(_box_order(row), text, score, _box_rect(row))
 
 
 def _engine_rows(
@@ -1251,169 +915,3 @@ def read_frame(
     good = [r for r in (_parse_row(row, min_confidence) for row in rows) if r is not None]
     return join_rows(_drop_overlaps(good))
 
-
-def join_rows(rows: list[Row]) -> tuple[str, float]:
-    """Ghep cac vung chu tren mot khung hinh thanh mot cau kem do tin cay."""
-    kept = [row for row in rows if row.text]
-    if not kept:
-        return "", 0.0
-    kept = _reading_order(kept)
-    text = _join_parts([(row.rect, row.text) for row in kept])
-    mean = sum(row.score for row in kept) / len(kept)
-    return text, mean
-
-
-def _same_line(a, b) -> bool:
-    """Hai vung chu co nam tren cung mot dong khong."""
-    if a is None or b is None:
-        return False
-    top = max(a[1], b[1])
-    bottom = min(a[3], b[3])
-    shorter = min(a[3] - a[1], b[3] - b[1])
-    return shorter > 0 and (bottom - top) / shorter > 0.5
-
-
-def _reading_order(rows: list[Row]) -> list[Row]:
-    """Sap dung trai-sang-phai trong cung dong, roi moi tren-xuong-duoi.
-
-    Hop OCR cua mot dong thuong lech nhau vai pixel theo chieu doc. Sap thang
-    theo toa do Y se lam mot cum ben phai nhay len truoc cum ben trai.
-    """
-    placed: list[list[Row]] = []
-    loose: list[Row] = []
-    for row in sorted(rows, key=lambda item: item.order):
-        if row.rect is None:
-            loose.append(row)
-            continue
-        for line in placed:
-            if any(_same_line(row.rect, item.rect) for item in line):
-                line.append(row)
-                break
-        else:
-            placed.append([row])
-    placed.sort(key=lambda line: min(item.rect[1] for item in line if item.rect is not None))
-    ordered: list[Row] = []
-    for line in placed:
-        ordered.extend(
-            sorted(line, key=lambda item: item.rect[0] if item.rect is not None else item.order[1])
-        )
-    ordered.extend(sorted(loose, key=lambda item: item.order))
-    return ordered
-
-
-def _overlap_x(a, b) -> float:
-    if a is None or b is None:
-        return 0.0
-    return min(a[2], b[2]) - max(a[0], b[0])
-
-
-def _trim_repeat(left: str, right: str, limit: int = 12) -> str:
-    """Bo phan chu bi doc hai lan o cho hai vung chong len nhau."""
-    top = min(len(left), len(right), limit)
-    for k in range(top, 0, -1):
-        if left[-k:].casefold() == right[:k].casefold():
-            return right[k:]
-    return right
-
-
-def _is_cjk(char: str) -> bool:
-    if not char:
-        return False
-    code = ord(char)
-    return (
-        0x3400 <= code <= 0x4DBF
-        or 0x4E00 <= code <= 0x9FFF
-        or 0xF900 <= code <= 0xFAFF
-    )
-
-
-def _separator(left: str, right: str) -> str:
-    """Tieng Trung khong chen dau cach giua cac cum OCR cung mot dong."""
-    if not left or not right:
-        return ""
-    if _is_cjk(left[-1]) or _is_cjk(right[0]):
-        return ""
-    if right[0] in "，。！？；：、,.!?;:)]}》」』”’":
-        return ""
-    return " "
-
-
-def _join_parts(parts: list[tuple[object, str]]) -> str:
-    """Ghep cac vung chu thanh cau, xu ly cho bo doc chu cat dong lam doi.
-
-    Bo doc chu doi khi cat mot dong thanh hai vung chong len nhau, lam vai ky tu
-    o cho noi bi doc hai lan. Khi thay hai vung chong nhau tren cung mot dong,
-    ta cat bo phan lap lai thay vi noi thang.
-    """
-    text = ""
-    previous = None
-    for rect, piece in parts:
-        if not piece:
-            continue
-        if not text:
-            text, previous = piece, rect
-            continue
-        same_line = _same_line(previous, rect)
-        # Dau gach o cuoi hop la ky hieu noi dong do OCR tu sinh khi cat mot
-        # cau Trung thanh nhieu hop; hai hop khong nhat thiet phai chong nhau.
-        if same_line and text.endswith(("-", "—", "_")) and piece and _is_cjk(piece[0]):
-            text = text[:-1]
-        if same_line and _overlap_x(previous, rect) > 0:
-            text += _trim_repeat(text, piece)
-        else:
-            text += _separator(text, piece) + piece
-        previous = rect
-    return text.strip()
-
-
-def _drop_overlaps(rows: list[Row], overlap: float = 0.7) -> list[Row]:
-    """Bo cac vung chu nam long trong vung khac de khong doc mot chu hai lan.
-
-    Chu co dau nhu tieng Viet hay bi tach lam nhieu vung chong len nhau, khien
-    ket qua thua ky tu. Giu lai vung to nhat, bo cac vung nam trong no.
-    """
-    order = sorted(
-        range(len(rows)),
-        key=lambda i: -_area(rows[i].rect),
-    )
-    kept: list[Row] = []
-    for i in order:
-        rect = rows[i].rect
-        if any(_covered(rect, other.rect) >= overlap for other in kept):
-            continue
-        kept.append(rows[i])
-    return kept
-
-
-def _area(rect) -> float:
-    if rect is None:
-        return 0.0
-    x1, y1, x2, y2 = rect
-    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
-
-
-def _similar(a: str, b: str, threshold: float) -> bool:
-    if a == b:
-        return True
-    if not a or not b:
-        return False
-    return _text_ratio(a, b) >= threshold
-
-
-def _text_ratio(a: str, b: str) -> float:
-    """Do gan nhau cua chu; uu tien RapidFuzz C++ va co duong lui an toan."""
-    if _rapid_ratio is not None:
-        return float(_rapid_ratio(a, b)) / 100.0
-    return difflib.SequenceMatcher(None, a, b).ratio()
-
-
-def _same_caption_version(a: str, b: str, threshold: float) -> bool:
-    """Hai ban doc lien tiep co phai ban ngan/day du cua cung mot cau khong."""
-    if _similar(a, b, threshold):
-        return True
-    left = "".join(a.split())
-    right = "".join(b.split())
-    short, long = (left, right) if len(left) <= len(right) else (right, left)
-    # Luc chu dang hien dan, khung dau co the moi doc duoc nua cau. NTS giu
-    # ban day du o khung sau thay vi tao them mot cue ngan rieng.
-    return len(short) >= 3 and len(short) * 2 >= len(long) and short in long
