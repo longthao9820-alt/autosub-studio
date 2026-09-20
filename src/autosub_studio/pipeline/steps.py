@@ -455,9 +455,7 @@ def step_ocr(pc: PipelineContext) -> str:
                 prompt=getattr(s, "ocr_ai_custom_prompt", "") or "",
                 prompt_version=getattr(s, "ocr_ai_prompt_version", "v1") or "v1",
                 batch_size=getattr(s, "ocr_ai_batch_size", 8),
-                max_concurrency=getattr(
-                    s, "ai_ocr_concurrency", getattr(s, "ocr_ai_max_concurrency", 4)
-                ),
+                max_concurrency=getattr(s, "ocr_ai_max_concurrency", 4),
                 timeout=float(getattr(s, "ocr_ai_timeout", 60.0)),
                 max_retries=getattr(s, "ocr_ai_max_retries", 3),
                 diff_threshold=getattr(s, "ocr_ai_diff_threshold", 4.0),

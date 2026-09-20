@@ -172,9 +172,11 @@ class SubtitlePanel(QWidget):
     markOcrRegion = Signal()
     measureOcr = Signal()
     checkMachine = Signal()
+    testAiVision = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._updating_ocr = False
         self.strip = VerticalTabStrip(
             ["Tách Bằng Chữ (OCR)", "Tách Bằng Giọng (ASR)"], [GREEN, BLUE]
         )
@@ -253,12 +255,126 @@ class SubtitlePanel(QWidget):
                 "PP-OCRv4 Mobile (Nhanh Như NTS)",
                 "PP-OCRv6 Small (Nhanh)",
                 "PP-OCRv6 Medium (Chuẩn nhất)",
-                "Server AI API",
+                "AI Gateway",
             ]
         )
+        self.ocr_server.setToolTip(
+            "Chọn server nhận dạng chữ. AI Gateway dùng Vision AI trực tiếp, "
+            "không fallback về local engine."
+        )
+
+        self.ai_settings_box = QGroupBox("Cấu Hình AI Gateway (Vision OCR)")
+        self.ai_settings_box.setToolTip(
+            "Cấu hình nhận dạng chữ qua AI Gateway (Vision AI). Không fallback về local OCR."
+        )
+
         self.ocr_ai_model = QComboBox()
         self.ocr_ai_model.addItems(["sub", "prime"])
         self.ocr_ai_model.setFixedWidth(70)
+        self.ocr_ai_model.setToolTip(
+            "Mô hình Vision AI (sub hoặc prime). Không fallback về local OCR."
+        )
+
+        self.ocr_ai_batch = QSpinBox()
+        self.ocr_ai_batch.setRange(1, 64)
+        self.ocr_ai_batch.setValue(8)
+        self.ocr_ai_batch.setFixedWidth(60)
+        self.ocr_ai_batch.setToolTip(
+            "Số frame gửi trong một mẻ xử lý AI (1-64). Không fallback về local."
+        )
+        self.ocr_ai_batch_size = self.ocr_ai_batch
+
+        self.ocr_ai_concurrency = QSpinBox()
+        self.ocr_ai_concurrency.setRange(1, 16)
+        self.ocr_ai_concurrency.setValue(4)
+        self.ocr_ai_concurrency.setFixedWidth(60)
+        self.ocr_ai_concurrency.setToolTip(
+            "Số luồng xử lý AI đồng thời (1-16). Không fallback về local."
+        )
+        self.ocr_ai_max_concurrency = self.ocr_ai_concurrency
+
+        self.ocr_ai_timeout = QSpinBox()
+        self.ocr_ai_timeout.setRange(5, 600)
+        self.ocr_ai_timeout.setValue(60)
+        self.ocr_ai_timeout.setSuffix(" sec")
+        self.ocr_ai_timeout.setFixedWidth(75)
+        self.ocr_ai_timeout.setToolTip(
+            "Thời gian chờ tối đa cho mỗi yêu cầu AI (5-600 giây). Không fallback về local."
+        )
+
+        self.ocr_ai_retries = QSpinBox()
+        self.ocr_ai_retries.setRange(0, 8)
+        self.ocr_ai_retries.setValue(3)
+        self.ocr_ai_retries.setFixedWidth(55)
+        self.ocr_ai_retries.setToolTip(
+            "Số lần thử lại khi gọi AI thất bại (0-8). Không fallback về local."
+        )
+        self.ocr_ai_max_retries = self.ocr_ai_retries
+
+        self.ocr_ai_quality = QSpinBox()
+        self.ocr_ai_quality.setRange(30, 100)
+        self.ocr_ai_quality.setValue(88)
+        self.ocr_ai_quality.setFixedWidth(60)
+        self.ocr_ai_quality.setToolTip(
+            "Chất lượng nén ảnh JPEG gửi tới AI (30-100). Không fallback về local."
+        )
+        self.ocr_ai_image_quality = self.ocr_ai_quality
+
+        self.ocr_ai_diff = QDoubleSpinBox()
+        self.ocr_ai_diff.setRange(0.1, 50.0)
+        self.ocr_ai_diff.setSingleStep(0.5)
+        self.ocr_ai_diff.setDecimals(1)
+        self.ocr_ai_diff.setValue(4.0)
+        self.ocr_ai_diff.setFixedWidth(65)
+        self.ocr_ai_diff.setToolTip(
+            "Ngưỡng khác biệt khung hình (0.1-50.0, bước nhảy 0.5). Không fallback về local."
+        )
+        self.ocr_ai_diff_threshold = self.ocr_ai_diff
+
+        self.ocr_ai_mode = QComboBox()
+        self.ocr_ai_mode.addItem("Nhanh", "fast")
+        self.ocr_ai_mode.addItem("Chính xác", "accuracy")
+        self.ocr_ai_mode.setFixedWidth(95)
+        self.ocr_ai_mode.setToolTip(
+            "Chế độ AI Gateway: Nhanh (1 frame) hoặc Chính xác (3 frame đồng thuận). "
+            "Không fallback về local."
+        )
+        self.ocr_ai_consensus_mode = self.ocr_ai_mode
+
+        self.btn_test_ai_vision = QPushButton("Kiểm Tra Vision AI")
+        self.btn_test_ai_vision.setToolTip(
+            "Kiểm tra kết nối và nhận diện Vision AI với AI Gateway (không fallback về local)."
+        )
+        self.btn_test_ai_vision.clicked.connect(self.testAiVision.emit)
+        self.btn_test_ai = self.btn_test_ai_vision
+        self.btn_test_vision = self.btn_test_ai_vision
+
+        ai_box_layout = QVBoxLayout(self.ai_settings_box)
+        ai_box_layout.setContentsMargins(8, 10, 8, 8)
+        ai_box_layout.setSpacing(8)
+        ai_box_layout.addLayout(
+            _row(
+                "Model:",
+                self.ocr_ai_model,
+                "Chế Độ AI:",
+                self.ocr_ai_mode,
+                "Batch AI:",
+                self.ocr_ai_batch,
+                "Đồng Thời:",
+                self.ocr_ai_concurrency,
+                "Timeout:",
+                self.ocr_ai_timeout,
+                "Thử Lại:",
+                self.ocr_ai_retries,
+                "Chất Lượng:",
+                self.ocr_ai_quality,
+                "Ngưỡng Diff:",
+                self.ocr_ai_diff,
+                self.btn_test_ai_vision,
+                None,
+            )
+        )
+
         self.ocr_language = QComboBox()
         self.ocr_language.addItems(["Simplified Chinese", "English", "Vietnamese", "Auto"])
         self.ocr_batch = QSpinBox()
@@ -272,6 +388,7 @@ class SubtitlePanel(QWidget):
             "3 la muc chinh xac tot cho phu de tieng Trung."
         )
         self.ocr_mode.currentTextChanged.connect(self._apply_ocr_preset)
+        self.ocr_server.currentTextChanged.connect(self._on_ocr_server_changed)
 
         self.btn_region = QPushButton("Xem Trước Vùng Cắt")
         self.btn_region.setToolTip(
@@ -302,8 +419,6 @@ class SubtitlePanel(QWidget):
                 self.ocr_max_height,
                 "Server:",
                 self.ocr_server,
-                "AI Model:",
-                self.ocr_ai_model,
                 "Ngôn Ngữ Sub:",
                 self.ocr_language,
                 "Batch Size:",
@@ -346,6 +461,7 @@ class SubtitlePanel(QWidget):
                 None,
             )
         )
+        inner.addWidget(self.ai_settings_box)
         inner.addStretch(1)
         inner.addLayout(
             _row(
@@ -393,45 +509,143 @@ class SubtitlePanel(QWidget):
         layout.setSpacing(5)
         layout.addWidget(box, 1)
         layout.addWidget(server_box)
+        self._update_ai_mode_ui()
         return page
+
+    def is_ai_selected(self) -> bool:
+        return self.ocr_server.currentText() == "AI Gateway"
+
+    def _on_ocr_server_changed(self, server: str) -> None:
+        if self._updating_ocr:
+            return
+        self._updating_ocr = True
+        try:
+            if server == "AI Gateway":
+                if self.ocr_mode.currentText() != "OCR AI":
+                    self.ocr_mode.setCurrentText("OCR AI")
+            else:
+                if self.ocr_mode.currentText() == "OCR AI":
+                    server_to_mode = {
+                        "PP-OCRv4 Mobile (Nhanh Như NTS)": "Nhanh Như NTS",
+                        "PP-OCRv6 Small (Nhanh)": "Cân Bằng",
+                        "PP-OCRv6 Medium (Chuẩn nhất)": "Chính Xác",
+                    }
+                    self.ocr_mode.setCurrentText(
+                        server_to_mode.get(server, "Nhanh Như NTS")
+                    )
+            self._update_ai_mode_ui()
+        finally:
+            self._updating_ocr = False
 
     def _apply_ocr_preset(self, name: str) -> None:
         """Bien ba che do tren giao dien thanh tham so OCR thuc su."""
-        if name == "OCR AI":
-            self.ocr_server.setCurrentText("Server AI API")
-            self.ocr_refine.setChecked(False)
+        if self._updating_ocr:
             return
-        presets = {
-            "Nhanh Như NTS": (
-                15.0,
-                70.0,
-                80,
-                1,
-                False,
-                5,
-                "PP-OCRv4 Mobile (Nhanh Như NTS)",
-            ),
-            "Cân Bằng": (4.0, 45.0, 80, 2, True, 6, "PP-OCRv6 Small (Nhanh)"),
-            "Chính Xác": (
-                6.0,
-                50.0,
-                82,
-                3,
-                True,
-                6,
-                "PP-OCRv6 Medium (Chuẩn nhất)",
-            ),
-        }
-        fps, confidence, similarity, votes, refine, batch, server = presets.get(
-            name, presets["Nhanh Như NTS"]
-        )
-        self.ocr_fps.setValue(fps)
-        self.ocr_confidence.setValue(confidence)
-        self.ocr_similarity.setValue(similarity)
-        self.ocr_count.setValue(votes)
-        self.ocr_refine.setChecked(refine)
-        self.ocr_batch.setValue(batch)
-        self.ocr_server.setCurrentText(server)
+        self._updating_ocr = True
+        try:
+            if name == "OCR AI":
+                self.ocr_server.setCurrentText("AI Gateway")
+                self.ocr_refine.setChecked(False)
+                self._update_ai_mode_ui()
+                return
+            presets = {
+                "Nhanh Như NTS": (
+                    15.0,
+                    70.0,
+                    80,
+                    1,
+                    False,
+                    5,
+                    "PP-OCRv4 Mobile (Nhanh Như NTS)",
+                ),
+                "Cân Bằng": (4.0, 45.0, 80, 2, True, 6, "PP-OCRv6 Small (Nhanh)"),
+                "Chính Xác": (
+                    6.0,
+                    50.0,
+                    82,
+                    3,
+                    True,
+                    6,
+                    "PP-OCRv6 Medium (Chuẩn nhất)",
+                ),
+            }
+            fps, confidence, similarity, votes, refine, batch, server = presets.get(
+                name, presets["Nhanh Như NTS"]
+            )
+            self.ocr_fps.setValue(fps)
+            self.ocr_confidence.setValue(confidence)
+            self.ocr_similarity.setValue(similarity)
+            self.ocr_count.setValue(votes)
+            self.ocr_refine.setChecked(refine)
+            self.ocr_batch.setValue(batch)
+            self.ocr_server.setCurrentText(server)
+            self._update_ai_mode_ui()
+        finally:
+            self._updating_ocr = False
+
+    def _update_ai_mode_ui(self) -> None:
+        is_ai = self.is_ai_selected()
+
+        self.ai_settings_box.setVisible(is_ai)
+        self.ai_settings_box.setEnabled(is_ai)
+
+        # Local-only controls disabled in AI, enabled in Local
+        self.ocr_confidence.setEnabled(not is_ai)
+        self.ocr_min_height.setEnabled(not is_ai)
+        self.ocr_max_height.setEnabled(not is_ai)
+        self.ocr_batch.setEnabled(not is_ai)
+        self.ocr_count.setEnabled(not is_ai)
+        self.ocr_refine.setEnabled(not is_ai)
+        self.ocr_brightness.setEnabled(not is_ai)
+        self.ocr_contrast.setEnabled(not is_ai)
+
+        self.btn_measure.setEnabled(not is_ai and ocr.is_available() and ocr_filter.available())
+        self.btn_test_ocr.setEnabled(not is_ai and ocr.is_available())
+
+        self.color_dot.setEnabled(not is_ai)
+        self.ocr_text_color.setEnabled(not is_ai)
+        self.btn_pick_color.setEnabled(not is_ai)
+        self.btn_clear_color.setEnabled(not is_ai)
+        self.ocr_color_filter.setEnabled(not is_ai)
+        self.ocr_tolerance.setEnabled(not is_ai)
+
+        # Recognition-neutral remain enabled
+        self.ocr_similarity.setEnabled(True)
+        self.ocr_min_duration.setEnabled(True)
+        self.ocr_drop_words.setEnabled(True)
+        self.ocr_drop_chars.setEnabled(True)
+        self.ocr_continuous.setEnabled(True)
+
+        start_ok = is_ai or ocr.is_available()
+        self.btn_ocr.setEnabled(start_ok)
+        self.btn_format_ocr.setEnabled(start_ok)
+
+        if is_ai:
+            self.btn_ocr.setToolTip(
+                "START: Chạy nhận dạng chữ bằng AI Gateway (Vision AI). "
+                "Xử lý trực tiếp qua đám mây, không fallback về local OCR."
+            )
+            self.btn_format_ocr.setToolTip(
+                "START: Format video và nhận dạng chữ bằng AI Gateway (Vision AI). "
+                "Không fallback về local OCR."
+            )
+        else:
+            self.btn_ocr.setToolTip("START: Lấy sub bằng engine local trên máy.")
+            self.btn_format_ocr.setToolTip(
+                "START: Format video và lấy sub bằng engine local trên máy."
+            )
+
+        notes = []
+        if not asr.is_available():
+            notes.append(asr.install_hint())
+        if not is_ai and not ocr.is_available():
+            notes.append(ocr.install_hint())
+        if not is_ai and ocr.is_available() and not ocr_filter.available():
+            notes.append(
+                "Thieu opencv-python nen khong loc duoc chu theo mau. "
+                "Chay: pip install opencv-python"
+            )
+        self.status.setText("\n".join(notes))
 
     def set_machine_checking(self, checking: bool) -> None:
         self.btn_check_machine.setEnabled(not checking)
@@ -669,7 +883,7 @@ class SubtitlePanel(QWidget):
             self.region_table.setItem(r, 0, QTableWidgetItem(str(time_index)))
             for c, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
-                item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.region_table.setItem(r, c + 1, item)
 
     def load(self, s: Settings) -> None:
@@ -684,9 +898,26 @@ class SubtitlePanel(QWidget):
         self.device.setCurrentIndex(0 if s.use_gpu else 1)
         mode = "Nhanh Như NTS" if s.ocr_mode == "Nhanh" else s.ocr_mode
         self.ocr_mode.setCurrentText(mode)
-        self.ocr_server.setCurrentText(s.ocr_server)
+        server = "AI Gateway" if s.ocr_server == "Server AI API" else s.ocr_server
+        self.ocr_server.setCurrentText(server)
         if hasattr(s, "ocr_ai_model") and s.ocr_ai_model:
             self.ocr_ai_model.setCurrentText(s.ocr_ai_model)
+        self.ocr_ai_batch.setValue(getattr(s, "ocr_ai_batch_size", 8))
+        self.ocr_ai_concurrency.setValue(getattr(s, "ocr_ai_max_concurrency", 4))
+        self.ocr_ai_timeout.setValue(getattr(s, "ocr_ai_timeout", 60))
+        self.ocr_ai_retries.setValue(getattr(s, "ocr_ai_max_retries", 3))
+        self.ocr_ai_quality.setValue(getattr(s, "ocr_ai_image_quality", 88))
+        self.ocr_ai_diff.setValue(float(getattr(s, "ocr_ai_diff_threshold", 4.0)))
+        ai_consensus = getattr(s, "ocr_ai_consensus_mode", "disabled")
+        ai_frames = getattr(s, "ocr_ai_consensus_frames", 1)
+        if ai_consensus == "accuracy" or ai_frames >= 3:
+            idx = self.ocr_ai_mode.findData("accuracy")
+            if idx >= 0:
+                self.ocr_ai_mode.setCurrentIndex(idx)
+        else:
+            idx = self.ocr_ai_mode.findData("fast")
+            if idx >= 0:
+                self.ocr_ai_mode.setCurrentIndex(idx)
         self.ocr_language.setCurrentText(s.ocr_language)
         self.ocr_batch.setValue(s.ocr_batch_size)
         self.ocr_count.setValue(s.ocr_consensus)
@@ -710,24 +941,7 @@ class SubtitlePanel(QWidget):
         self._show_color()
 
         self.btn_asr.setEnabled(asr.is_available())
-        self.btn_ocr.setEnabled(
-            ocr.is_available()
-            or self.ocr_mode.currentText() == "OCR AI"
-            or self.ocr_server.currentText() == "Server AI API"
-        )
-        self.btn_measure.setEnabled(ocr.is_available() and ocr_filter.available())
-        notes = []
-        if not asr.is_available():
-            notes.append(asr.install_hint())
-        if not ocr.is_available():
-            notes.append(ocr.install_hint())
-        if ocr.is_available() and not ocr_filter.available():
-            notes.append(
-                "Thieu opencv-python nen khong loc duoc chu theo mau. "
-                "Chay: pip install opencv-python"
-            )
-        if notes:
-            self.status.setText("\n".join(notes))
+        self._update_ai_mode_ui()
         if s.hardware_signature:
             mode = "GPU" if s.use_gpu else "CPU"
             self.set_machine_result(
@@ -752,6 +966,15 @@ class SubtitlePanel(QWidget):
         s.ocr_server = self.ocr_server.currentText()
         if hasattr(s, "ocr_ai_model"):
             s.ocr_ai_model = self.ocr_ai_model.currentText()
+        s.ocr_ai_batch_size = self.ocr_ai_batch.value()
+        s.ocr_ai_max_concurrency = self.ocr_ai_concurrency.value()
+        s.ocr_ai_timeout = self.ocr_ai_timeout.value()
+        s.ocr_ai_max_retries = self.ocr_ai_retries.value()
+        s.ocr_ai_image_quality = self.ocr_ai_quality.value()
+        s.ocr_ai_diff_threshold = float(self.ocr_ai_diff.value())
+        ai_mode_data = self.ocr_ai_mode.currentData() or "fast"
+        s.ocr_ai_consensus_mode = str(ai_mode_data)
+        s.ocr_ai_consensus_frames = 3 if ai_mode_data == "accuracy" else 1
         s.ocr_language = self.ocr_language.currentText()
         s.ocr_batch_size = self.ocr_batch.value()
         s.ocr_consensus = self.ocr_count.value()

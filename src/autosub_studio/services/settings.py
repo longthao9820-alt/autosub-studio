@@ -426,6 +426,30 @@ class Settings:
                 settings.ocr_ai_prompt_version = "v1"
             if not hasattr(settings, "ocr_ai_custom_prompt"):
                 settings.ocr_ai_custom_prompt = ""
+
+        # Migrate legacy AI OCR settings names & server labels
+        if "ai_ocr_concurrency" in data and "ocr_ai_max_concurrency" not in data:
+            with contextlib.suppress(ValueError, TypeError):
+                settings.ocr_ai_max_concurrency = int(data["ai_ocr_concurrency"])
+        if "ai_ocr_concurrency" in settings.extra:
+            if not getattr(settings, "ocr_ai_max_concurrency", 0):
+                with contextlib.suppress(ValueError, TypeError):
+                    settings.ocr_ai_max_concurrency = int(settings.extra["ai_ocr_concurrency"])
+            settings.extra.pop("ai_ocr_concurrency", None)
+
+        if settings.ocr_server == "Server AI API" or data.get("ocr_server") == "Server AI API":
+            settings.ocr_server = "AI Gateway"
+        if settings.ocr_mode == "OCR AI" and "ocr_server" not in data:
+            settings.ocr_server = "AI Gateway"
+
+        for prof in settings.config_profiles.values():
+            if isinstance(prof, dict):
+                if prof.get("ocr_server") == "Server AI API":
+                    prof["ocr_server"] = "AI Gateway"
+                if "ai_ocr_concurrency" in prof:
+                    if "ocr_ai_max_concurrency" not in prof:
+                        prof["ocr_ai_max_concurrency"] = prof["ai_ocr_concurrency"]
+                    prof.pop("ai_ocr_concurrency", None)
         # tts_provider always Local Voice; old settings migrate prompt via empty local_voice
         if settings.tts_provider != "Local Voice":
             settings.tts_provider = "Local Voice"
