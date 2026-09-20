@@ -21,6 +21,166 @@ TEST_TIMEOUT = 15.0
 class AIGatewayError(RuntimeError):
     """Loi khi goi hoac ket noi toi AI Gateway."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str | None = None,
+        retry_after: float | None = None,
+        is_transient: bool = False,
+        is_split_required: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.retry_after = retry_after
+        self.is_transient = is_transient
+        self.is_split_required = is_split_required
+
+
+class AIGatewayAuthError(AIGatewayError):
+    """Loi xac thuc (401, 403) - khong thu lai."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 401,
+        code: str | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            code=code,
+            retry_after=retry_after,
+            is_transient=False,
+            is_split_required=False,
+        )
+
+
+class AIGatewayInvalidRequestError(AIGatewayError):
+    """Loi yeu cau / model / dinh dang khong hop le (400, 404) - khong thu lai."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 400,
+        code: str | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            code=code,
+            retry_after=retry_after,
+            is_transient=False,
+            is_split_required=False,
+        )
+
+
+class AIGatewayPayloadTooLargeError(AIGatewayError):
+    """Loi yeu cau qua lon (413 hoac vuot context length) - can chia nho batch (split-required)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 413,
+        code: str | None = "payload_too_large",
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            code=code,
+            retry_after=retry_after,
+            is_transient=False,
+            is_split_required=True,
+        )
+
+
+class AIGatewayRateLimitError(AIGatewayError):
+    """Loi vuot qua gioi han toc do (429) - co the thu lai."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 429,
+        code: str | None = "rate_limit_exceeded",
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            code=code,
+            retry_after=retry_after,
+            is_transient=True,
+            is_split_required=False,
+        )
+
+
+class AIGatewayServerError(AIGatewayError):
+    """Loi may chu AI Gateway (5xx) - loi tam thoi (transient)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 500,
+        code: str | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            code=code,
+            retry_after=retry_after,
+            is_transient=True,
+            is_split_required=False,
+        )
+
+
+class AIGatewayTimeoutError(AIGatewayError):
+    """Loi het thoi gian cho (timeout) - loi tam thoi (transient)."""
+
+    def __init__(
+        self,
+        message: str = "Hết thời gian chờ phản hồi từ AI Gateway (timeout).",
+        *,
+        code: str | None = "timeout",
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=None,
+            code=code,
+            retry_after=None,
+            is_transient=True,
+            is_split_required=False,
+        )
+
+
+class AIGatewayConnectionError(AIGatewayError):
+    """Loi ket noi mang (URLError / connection) - loi tam thoi (transient)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = "connection_failed",
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=None,
+            code=code,
+            retry_after=None,
+            is_transient=True,
+            is_split_required=False,
+        )
+
 
 def normalize_chat_endpoint(endpoint: str) -> str:
     """Chuan hoa endpoint ve URL day du /chat/completions.
@@ -71,8 +231,11 @@ def _sanitize_error_text(text: str, max_len: int = 120) -> str:
     """Khu cac thong tin nhay cam va gioi han do dai cua chuoi loi."""
     if not text:
         return ""
-    sanitized = re.sub(r"(Bearer\s+)[^\s'\"]+", r"\1***", text)
-    sanitized = re.sub(r"sk-[a-zA-Z0-9_\-]{8,}", "sk-***", sanitized)
+    sanitized = re.sub(
+        r"(?i)(authorization|api-key|x-api-key)\s*[:=]\s*[^\s,;'\"]+", r"\1: ***", text
+    )
+    sanitized = re.sub(r"(?i)bearer\s+[^\s'\"]+", "Bearer ***", sanitized)
+    sanitized = re.sub(r"sk-[a-zA-Z0-9_\-]{6,}", "sk-***", sanitized)
     sanitized = " ".join(sanitized.split())
     if len(sanitized) > max_len:
         return sanitized[:max_len] + "..."
@@ -112,6 +275,87 @@ def _extract_text_blocks(content: Any) -> str:
     return str(content)
 
 
+def _raise_classified_error(
+    status_code: int | None,
+    msg: str,
+    *,
+    err_code: str | None = None,
+    retry_after: float | None = None,
+    cause: Exception | None = None,
+) -> None:
+    """Phan loai va nem loi AIGatewayError phu hop theo status code va ma loi."""
+    sanitized_msg = _sanitize_error_text(str(msg))
+    prefix = (
+        f"AI Gateway báo lỗi {status_code}: "
+        if status_code is not None
+        else "AI Gateway báo lỗi: "
+    )
+    clean_err_str = f"{prefix}{sanitized_msg}"
+
+    lower_combined = f"{sanitized_msg} {err_code or ''}".lower()
+    is_context_too_large = any(
+        term in lower_combined
+        for term in (
+            "context_length_exceeded",
+            "context length",
+            "maximum context length",
+            "request too large",
+            "request entity too large",
+            "payload too large",
+            "prompt is too long",
+            "too many tokens",
+        )
+    )
+
+    err: AIGatewayError
+    if status_code == 413 or is_context_too_large:
+        err = AIGatewayPayloadTooLargeError(
+            clean_err_str,
+            status_code=status_code or 413,
+            code=err_code or "payload_too_large",
+            retry_after=retry_after,
+        )
+    elif status_code in (401, 403) or (err_code and "auth" in err_code.lower()):
+        err = AIGatewayAuthError(
+            clean_err_str,
+            status_code=status_code or 401,
+            code=err_code,
+            retry_after=retry_after,
+        )
+    elif status_code == 429 or (err_code and "rate_limit" in err_code.lower()):
+        err = AIGatewayRateLimitError(
+            clean_err_str,
+            status_code=status_code or 429,
+            code=err_code or "rate_limit_exceeded",
+            retry_after=retry_after,
+        )
+    elif status_code in (400, 404):
+        err = AIGatewayInvalidRequestError(
+            clean_err_str,
+            status_code=status_code,
+            code=err_code,
+            retry_after=retry_after,
+        )
+    elif status_code is not None and 500 <= status_code <= 599:
+        err = AIGatewayServerError(
+            clean_err_str,
+            status_code=status_code,
+            code=err_code,
+            retry_after=retry_after,
+        )
+    else:
+        err = AIGatewayError(
+            clean_err_str,
+            status_code=status_code,
+            code=err_code,
+            retry_after=retry_after,
+        )
+
+    if cause is not None:
+        raise err from cause
+    raise err
+
+
 def _parse_sse_stream(text: str) -> tuple[bool, str]:
     """Parse luong Server-Sent Events (SSE) khi AI Gateway bo qua stream=False."""
     clean_text = text.lstrip("\ufeff")
@@ -148,11 +392,13 @@ def _parse_sse_stream(text: str) -> tuple[bool, str]:
 
         if "error" in chunk:
             err_obj = chunk["error"]
+            code_val = None
             if isinstance(err_obj, dict):
                 msg = str(err_obj.get("message", err_obj))
+                code_val = err_obj.get("code") or err_obj.get("type")
             else:
                 msg = str(err_obj)
-            raise AIGatewayError(f"AI Gateway báo lỗi: {msg}")
+            _raise_classified_error(None, msg, err_code=str(code_val) if code_val else None)
 
         choices = chunk.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -230,8 +476,13 @@ def parse_chat_response(raw: str, content_type: str = "") -> str:
 
     if "error" in data:
         err_obj = data["error"]
-        msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
-        raise AIGatewayError(f"AI Gateway báo lỗi: {msg}")
+        code_val = None
+        if isinstance(err_obj, dict):
+            msg = str(err_obj.get("message", str(err_obj)))
+            code_val = err_obj.get("code") or err_obj.get("type")
+        else:
+            msg = str(err_obj)
+        _raise_classified_error(None, msg, err_code=str(code_val) if code_val else None)
 
     choices = data.get("choices")
     if not choices or not isinstance(choices, list):
@@ -308,16 +559,43 @@ def chat_completion(
         with contextlib.suppress(Exception):
             err_body = exc.read().decode("utf-8", errors="replace")
         msg = exc.reason
+        err_code: str | None = None
         with contextlib.suppress(Exception):
             parsed = json.loads(err_body)
             if isinstance(parsed, dict) and "error" in parsed:
                 err_obj = parsed["error"]
-                msg = err_obj.get("message", msg) if isinstance(err_obj, dict) else str(err_obj)
-        raise AIGatewayError(f"AI Gateway báo lỗi {exc.code}: {msg}") from exc
+                if isinstance(err_obj, dict):
+                    msg = err_obj.get("message", msg)
+                    err_code = err_obj.get("code")
+                    if not err_code and "type" in err_obj:
+                        err_code = str(err_obj.get("type"))
+                else:
+                    msg = str(err_obj)
+
+        retry_after: float | None = None
+        if exc.headers:
+            ra_header = exc.headers.get("Retry-After") or exc.headers.get("retry-after")
+            if ra_header:
+                with contextlib.suppress(Exception):
+                    retry_after = float(ra_header)
+
+        _raise_classified_error(
+            exc.code,
+            str(msg),
+            err_code=err_code,
+            retry_after=retry_after,
+            cause=exc,
+        )
     except urllib.error.URLError as exc:
-        raise AIGatewayError(f"Không thể kết nối tới AI Gateway: {exc.reason}") from exc
+        sanitized_reason = _sanitize_error_text(str(exc.reason))
+        if isinstance(exc.reason, TimeoutError):
+            raise AIGatewayTimeoutError() from exc
+        raise AIGatewayConnectionError(
+            f"Không thể kết nối tới AI Gateway: {sanitized_reason}",
+            code="connection_failed",
+        ) from exc
     except TimeoutError as exc:
-        raise AIGatewayError("Hết thời gian chờ phản hồi từ AI Gateway (timeout).") from exc
+        raise AIGatewayTimeoutError() from exc
     except AIGatewayError:
         raise
     except Exception as exc:
