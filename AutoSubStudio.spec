@@ -21,6 +21,12 @@ hidden = [
     "autosub_studio.ui.main_window",
     "autosub_studio.selftest",
     "autosub_studio.services.gpu",
+    "autosub_studio.core.ocr_common",
+    "autosub_studio.data.ocr_cache",
+    "autosub_studio.providers.ocr_selector",
+    "autosub_studio.providers.ocr_ai_provider",
+    "autosub_studio.services.ai_ocr_scheduler",
+    "autosub_studio.services.ai_ocr_metrics",
     "sqlalchemy.dialects.sqlite",
 ]
 datas = []

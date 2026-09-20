@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 APP_NAME = "AutoSub Studio"
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.1.0"
 ORG_NAME = "AutoSubStudio"
 __version__ = APP_VERSION
 

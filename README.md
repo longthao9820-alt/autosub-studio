@@ -5,6 +5,18 @@ máy của bạn, bảo đảm an toàn dữ liệu và quyền riêng tư.
 
 ---
 
+## Điểm mới trong phiên bản 2.1.0
+
+- **Nhận dạng Vision AI thực thụ (True AI Recognition):** Tách phụ đề video bằng mô hình thị giác AI (`sub` / `prime`) qua AI Gateway, tuyệt đối không fallback âm thầm về local OCR.
+- **Chỉ xử lý vùng cắt (Crop-only):** Cắt chính xác vùng phụ đề (`region crop`), chỉ gửi ảnh vùng phụ đề lên AI, loại bỏ chữ gây nhiễu bên ngoài, bảo mật và tiết kiệm băng thông.
+- **Bộ lọc thị giác (Visual Filter):** Tự động lọc bỏ khung hình tĩnh và trùng lặp trước khi gửi, giảm số lượng request thực tế trên 70%.
+- **Điều phối lô toàn cục (Batch & Global Scheduler):** Gom nhóm frame theo lô (`batch_size`), kiểm soát số luồng đồng thời toàn cục (`max_concurrency`), chống tràn hàng đợi.
+- **Thử lại, lưu điểm ngắt & khôi phục (Retries / Checkpoint / Resume):** Cơ chế thử lại lỗi tạm thời; lưu tiến độ theo từng batch vào SQLite checkpoint, cho phép tiếp tục tác vụ khi bị ngắt.
+- **Giao diện đáp ứng (Responsive UI):** Thiết kế lại panel B1 và khối cấu hình AI theo lưới `QGridLayout`, tự động gói gọn không bị cắt mép trên màn hình 1366×768.
+- *(Lệnh đo kiểm hiệu năng AI OCR mô phỏng đã có sẵn tại Mục 8).*
+
+---
+
 ## 1. Mở phần mềm
 
 **Cách nhanh nhất:** vào thư mục `dist\AutoSubStudio\` rồi **nhấp đúp vào `AutoSubStudio.exe`**.

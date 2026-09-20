@@ -67,20 +67,20 @@ class TestReleaseMetadata:
 
     def test_fetch_latest_release_success(self, monkeypatch):
         fake_api_response = {
-            "tag_name": "v2.1.0",
-            "name": "AutoSub Studio v2.1.0",
+            "tag_name": "v2.2.0",
+            "name": "AutoSub Studio v2.2.0",
             "body": "Nang cap tinh nang moi\nFix bugs",
             "draft": False,
             "prerelease": False,
             "published_at": "2026-09-20T10:00:00Z",
             "assets": [
                 {
-                    "name": "AutoSubStudio-v2.1.0-windows-x64.zip",
+                    "name": "AutoSubStudio-v2.2.0-windows-x64.zip",
                     "browser_download_url": "https://github.com/test/download.zip",
                     "size": 104857600,
                 },
                 {
-                    "name": "AutoSubStudio-v2.1.0-windows-x64.zip.sha256",
+                    "name": "AutoSubStudio-v2.2.0-windows-x64.zip.sha256",
                     "browser_download_url": "https://github.com/test/download.zip.sha256",
                     "size": 64,
                 },
@@ -103,9 +103,9 @@ class TestReleaseMetadata:
 
         rel = fetch_latest_release(repo=DEFAULT_REPO)
         assert rel is not None
-        assert rel.version == "2.1.0"
-        assert rel.tag_name == "v2.1.0"
-        assert rel.asset_name == "AutoSubStudio-v2.1.0-windows-x64.zip"
+        assert rel.version == "2.2.0"
+        assert rel.tag_name == "v2.2.0"
+        assert rel.asset_name == "AutoSubStudio-v2.2.0-windows-x64.zip"
         assert rel.asset_url == "https://github.com/test/download.zip"
         assert rel.asset_size == 104857600
         assert rel.sha256_url == "https://github.com/test/download.zip.sha256"

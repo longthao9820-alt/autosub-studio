@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QStackedWidget,
@@ -190,7 +191,9 @@ class SubtitlePanel(QWidget):
         region_layout = QVBoxLayout(region_box)
         region_layout.setContentsMargins(6, 12, 6, 6)
         region_layout.addWidget(self.region_table)
-        region_box.setFixedWidth(465)
+        region_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        region_box.setMinimumWidth(260)
+        region_box.setMaximumWidth(465)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(2, 2, 4, 2)
@@ -346,34 +349,38 @@ class SubtitlePanel(QWidget):
             "Kiểm tra kết nối và nhận diện Vision AI với AI Gateway (không fallback về local)."
         )
         self.btn_test_ai_vision.clicked.connect(self.testAiVision.emit)
+        self.btn_test_ai_vision.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.btn_test_ai = self.btn_test_ai_vision
         self.btn_test_vision = self.btn_test_ai_vision
 
         ai_box_layout = QVBoxLayout(self.ai_settings_box)
         ai_box_layout.setContentsMargins(8, 10, 8, 8)
         ai_box_layout.setSpacing(8)
-        ai_box_layout.addLayout(
-            _row(
-                "Model:",
-                self.ocr_ai_model,
-                "Chế Độ AI:",
-                self.ocr_ai_mode,
-                "Batch AI:",
-                self.ocr_ai_batch,
-                "Đồng Thời:",
-                self.ocr_ai_concurrency,
-                "Timeout:",
-                self.ocr_ai_timeout,
-                "Thử Lại:",
-                self.ocr_ai_retries,
-                "Chất Lượng:",
-                self.ocr_ai_quality,
-                "Ngưỡng Diff:",
-                self.ocr_ai_diff,
-                self.btn_test_ai_vision,
-                None,
-            )
-        )
+        ai_grid = QGridLayout()
+        ai_grid.setHorizontalSpacing(8)
+        ai_grid.setVerticalSpacing(8)
+        ai_grid.addWidget(QLabel("Model:"), 0, 0)
+        ai_grid.addWidget(self.ocr_ai_model, 0, 1)
+        ai_grid.addWidget(QLabel("Chế Độ AI:"), 0, 2)
+        ai_grid.addWidget(self.ocr_ai_mode, 0, 3)
+        ai_grid.addWidget(QLabel("Batch AI:"), 0, 4)
+        ai_grid.addWidget(self.ocr_ai_batch, 0, 5)
+        ai_grid.addWidget(QLabel("Đồng Thời:"), 0, 6)
+        ai_grid.addWidget(self.ocr_ai_concurrency, 0, 7)
+        ai_grid.addWidget(QLabel("Timeout:"), 0, 8)
+        ai_grid.addWidget(self.ocr_ai_timeout, 0, 9)
+
+        ai_grid.addWidget(QLabel("Thử Lại:"), 1, 0)
+        ai_grid.addWidget(self.ocr_ai_retries, 1, 1)
+        ai_grid.addWidget(QLabel("Chất Lượng:"), 1, 2)
+        ai_grid.addWidget(self.ocr_ai_quality, 1, 3)
+        ai_grid.addWidget(QLabel("Ngưỡng Diff:"), 1, 4)
+        ai_grid.addWidget(self.ocr_ai_diff, 1, 5)
+        ai_grid.addWidget(self.btn_test_ai_vision, 1, 6, 1, 4)
+        ai_grid.setColumnStretch(9, 1)
+        ai_box_layout.addLayout(ai_grid)
 
         self.ocr_language = QComboBox()
         self.ocr_language.addItems(["Simplified Chinese", "English", "Vietnamese", "Auto"])
@@ -390,11 +397,11 @@ class SubtitlePanel(QWidget):
         self.ocr_mode.currentTextChanged.connect(self._apply_ocr_preset)
         self.ocr_server.currentTextChanged.connect(self._on_ocr_server_changed)
 
-        self.btn_region = QPushButton("Xem Trước Vùng Cắt")
+        self.btn_region = QPushButton("Chọn / Xem Vùng OCR")
         self.btn_region.setToolTip(
-            "Khung xanh luon hien san tren video o che do Screen Edit. "
-            "Keo giua khung de di chuyen, keo 8 nut xanh o vien de doi kich thuoc. "
-            "Nut nay dua khung ve vi tri goi y ban dau."
+            "Khung xanh luôn hiện trên video ở Screen Edit. "
+            "Kéo giữa khung để di chuyển, kéo các nút ở viền để đổi kích thước. "
+            "Nút này mở lại khung chọn vùng OCR trên video."
         )
         self.btn_test_ocr = QPushButton("Tách Thử")
         self.btn_ocr = QPushButton("START: Lấy Sub V2")
@@ -411,67 +418,75 @@ class SubtitlePanel(QWidget):
         inner = QVBoxLayout(box)
         inner.setContentsMargins(8, 14, 8, 8)
         inner.setSpacing(12)
-        inner.addLayout(
-            _row(
-                "Loại Bỏ Chiều Cao Chữ: Nhỏ Hơn <",
-                self.ocr_min_height,
-                "Và Lớn Hơn >",
-                self.ocr_max_height,
-                "Server:",
-                self.ocr_server,
-                "Ngôn Ngữ Sub:",
-                self.ocr_language,
-                "Batch Size:",
-                self.ocr_batch,
-                "Số lượng:",
-                self.ocr_count,
-                None,
-            )
-        )
-        inner.addLayout(
-            _row(
-                "Chế Độ Trích Xuất",
-                self.ocr_mode,
-                "Ngưỡng Bỏ Qua:",
-                self.ocr_confidence,
-                "Chỉnh sáng:",
-                self.ocr_brightness,
-                self.lbl_brightness,
-                "Chỉnh tương phản:",
-                self.ocr_contrast,
-                self.lbl_contrast,
-                "Hệ số trùng từ nhau:",
-                self.ocr_similarity,
-                self.lbl_similarity,
-                self.ocr_continuous,
-                None,
-            )
-        )
-        inner.addLayout(
-            _row(
-                "Lọc Chữ Theo Màu Sub (Tùy Chọn):",
-                self.color_dot,
-                self.ocr_text_color,
-                self.btn_pick_color,
-                self.btn_clear_color,
-                "Lọc Bỏ Ký Tự Rác:",
-                self.ocr_drop_chars,
-                "Xóa Các Từ Có Chứa Trong Văn Bản:",
-                self.ocr_drop_words,
-                None,
-            )
-        )
+        source_grid = QGridLayout()
+        source_grid.setHorizontalSpacing(8)
+        source_grid.setVerticalSpacing(8)
+        source_grid.addWidget(QLabel("Chiều cao nhỏ nhất:"), 0, 0)
+        source_grid.addWidget(self.ocr_min_height, 0, 1)
+        source_grid.addWidget(QLabel("Chiều cao lớn nhất:"), 0, 2)
+        source_grid.addWidget(self.ocr_max_height, 0, 3)
+        source_grid.addWidget(QLabel("OCR Engine:"), 0, 4)
+        source_grid.addWidget(self.ocr_server, 0, 5)
+        source_grid.addWidget(QLabel("Ngôn ngữ:"), 1, 0)
+        source_grid.addWidget(self.ocr_language, 1, 1)
+        source_grid.addWidget(QLabel("Batch Local:"), 1, 2)
+        source_grid.addWidget(self.ocr_batch, 1, 3)
+        source_grid.addWidget(QLabel("Số lượng:"), 1, 4)
+        source_grid.addWidget(self.ocr_count, 1, 5)
+        source_grid.setColumnStretch(1, 1)
+        source_grid.setColumnStretch(5, 1)
+        inner.addLayout(source_grid)
+
+        filter_grid = QGridLayout()
+        filter_grid.setHorizontalSpacing(8)
+        filter_grid.setVerticalSpacing(8)
+        filter_grid.addWidget(QLabel("Chế độ trích xuất:"), 0, 0)
+        filter_grid.addWidget(self.ocr_mode, 0, 1)
+        filter_grid.addWidget(QLabel("Ngưỡng bỏ qua:"), 0, 2)
+        filter_grid.addWidget(self.ocr_confidence, 0, 3)
+        filter_grid.addWidget(QLabel("Chỉnh sáng:"), 0, 4)
+        filter_grid.addWidget(self.ocr_brightness, 0, 5)
+        filter_grid.addWidget(self.lbl_brightness, 0, 6)
+        filter_grid.addWidget(QLabel("Tương phản:"), 1, 0)
+        filter_grid.addWidget(self.ocr_contrast, 1, 1, 1, 2)
+        filter_grid.addWidget(self.lbl_contrast, 1, 3)
+        filter_grid.addWidget(QLabel("Trùng nội dung:"), 1, 4)
+        filter_grid.addWidget(self.ocr_similarity, 1, 5)
+        filter_grid.addWidget(self.lbl_similarity, 1, 6)
+        filter_grid.addWidget(self.ocr_continuous, 1, 7)
+        filter_grid.setColumnStretch(5, 1)
+        inner.addLayout(filter_grid)
+
+        cleanup_grid = QGridLayout()
+        cleanup_grid.setHorizontalSpacing(8)
+        cleanup_grid.setVerticalSpacing(8)
+        cleanup_grid.addWidget(self.ocr_color_filter, 0, 0)
+        cleanup_grid.addWidget(self.color_dot, 0, 1)
+        cleanup_grid.addWidget(self.ocr_text_color, 0, 2)
+        cleanup_grid.addWidget(self.btn_pick_color, 0, 3)
+        cleanup_grid.addWidget(self.btn_clear_color, 0, 4)
+        cleanup_grid.addWidget(QLabel("Lọc ký tự rác:"), 1, 0)
+        cleanup_grid.addWidget(self.ocr_drop_chars, 1, 1, 1, 2)
+        cleanup_grid.addWidget(QLabel("Xóa từ chứa:"), 1, 3)
+        cleanup_grid.addWidget(self.ocr_drop_words, 1, 4, 1, 2)
+        cleanup_grid.setColumnStretch(2, 1)
+        cleanup_grid.setColumnStretch(5, 1)
+        inner.addLayout(cleanup_grid)
         inner.addWidget(self.ai_settings_box)
         inner.addStretch(1)
-        inner.addLayout(
-            _row(
-                self.btn_measure,
-                self.btn_region,
-                self.btn_test_ocr,
-                self.btn_ocr,
-                self.btn_format_ocr,
-            )
-        )
+        action_grid = QGridLayout()
+        action_grid.setHorizontalSpacing(8)
+        action_grid.setVerticalSpacing(8)
+        action_grid.addWidget(self.btn_measure, 0, 0)
+        action_grid.addWidget(self.btn_region, 0, 1)
+        action_grid.addWidget(self.btn_test_ocr, 0, 2)
+        action_grid.addWidget(self.btn_ocr, 1, 0, 1, 2)
+        action_grid.addWidget(self.btn_format_ocr, 1, 2)
+        action_grid.setColumnStretch(0, 1)
+        action_grid.setColumnStretch(1, 1)
+        action_grid.setColumnStretch(2, 1)
+        inner.addLayout(action_grid)
+
 
         # Cac tham so ky thuat cu van duoc luu de tuong thich voi pipeline,
         # nhung khong lam roi man hinh dieu khien rut gon.

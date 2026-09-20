@@ -226,6 +226,7 @@ def _check_storage(settings: Settings) -> list[CheckResult]:
 
 def run_checks() -> tuple[list[CheckResult], str]:
     """Chay het cac muc kiem tra. Tra ve (danh sach ket qua, ket luan chung)."""
+    gpu.register_cuda_dlls()
     settings = Settings.load()
     results: list[CheckResult] = []
     results += _check_ffmpeg(settings)
