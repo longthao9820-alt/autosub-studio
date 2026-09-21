@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
+from autosub_studio.services import ai_gateway
 from autosub_studio.services.settings import Settings
 from autosub_studio.services.tasks import DONE, FAILED, TaskContext
 from autosub_studio.ui.dialogs import (
@@ -25,7 +27,7 @@ class TestAIGatewayDialogVision:
             assert isinstance(dialog.btn_test_vision_sub, QPushButton)
             assert isinstance(dialog.btn_test_vision_prime, QPushButton)
             assert dialog.btn_test_vision_sub.text() == "Test Vision Sub"
-            assert dialog.btn_test_vision_prime.text() == "Test Vision Prime"
+            assert dialog.btn_test_vision_prime.text() == "Test Dịch Prime"
         finally:
             dialog.deleteLater()
 
@@ -149,14 +151,14 @@ class TestAIGatewayDialogVision:
             dialog.endpoint.setText("https://api.openai.com/v1")
             dialog.model_prime.setText("gpt-4o")
 
-            def fake_start(worker_self: _VisionTestWorker) -> None:
-                worker_self.finished.emit(
+            monkeypatch.setattr(
+                ai_gateway,
+                "test_translation_role",
+                lambda *_args, **_kwargs: (
                     False,
                     "HTTP 401: Unauthorized with key sk-secret1234567890",
-                    88.0,
-                )
-
-            monkeypatch.setattr(_VisionTestWorker, "start", fake_start)
+                ),
+            )
 
             dialog.btn_test_vision_prime.click()
 
@@ -225,7 +227,9 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         win = MainWindow()
         try:
@@ -244,7 +248,9 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         win = MainWindow()
         try:
@@ -264,15 +270,16 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         win = MainWindow()
         try:
             win.settings.ai_endpoint = "https://gateway.ai/v1"
             win.settings.ocr_ai_model = "prime"
-            win.settings.ai_model_prime = "qwen-vl-max"
-            win.settings.ai_thinking_prime = "high"
-            win.subtitle_panel.ocr_ai_model.setCurrentText("prime")
+            win.settings.ai_model_sub = "qwen-vl-sub"
+            win.settings.ai_thinking_sub = "low"
             win.subtitle_panel.ocr_ai_timeout.setValue(25)
             monkeypatch.setattr(
                 Settings, "get_secret", lambda name: "sk-test-secret-key-123"
@@ -290,7 +297,7 @@ class TestMainWindowVisionIntegration:
 
             assert len(submitted_jobs) == 1
             label, job, timeout = submitted_jobs[0]
-            assert "qwen-vl-max" in label
+            assert "qwen-vl-sub" in label
             assert timeout == 35  # timeout + 10
             assert "task-ai-vision-999" in win._ai_vision_task_ids
 
@@ -307,8 +314,8 @@ class TestMainWindowVisionIntegration:
             assert "Latency:" in result
             assert mock_test_vision.call_count == 1
             call_kwargs = mock_test_vision.call_args[1]
-            assert call_kwargs["model"] == "qwen-vl-max"
-            assert call_kwargs["thinking"] == "high"
+            assert call_kwargs["model"] == "qwen-vl-sub"
+            assert call_kwargs["thinking"] == "low"
             assert call_kwargs["timeout"] == 25.0
         finally:
             win.close()
@@ -318,7 +325,9 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         win = MainWindow()
         try:
@@ -361,7 +370,9 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         win = MainWindow()
         try:
@@ -399,7 +410,9 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         win = MainWindow()
         try:
@@ -434,7 +447,9 @@ class TestMainWindowVisionIntegration:
         self, qapp, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         # Mock out local ocr provider functions to ensure they are NEVER called
         from autosub_studio.providers import ocr

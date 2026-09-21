@@ -13,7 +13,7 @@ from .paths import config_dir, default_workspace, is_portable, write_text_atomic
 
 CONFIG_NAME = "config.json"
 SECRETS_NAME = "secrets.dat"
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def _is_moved_portable_workspace(value: str) -> bool:
@@ -126,7 +126,8 @@ class Settings:
     source_language: str = "auto"
     target_language: str = "vi"
     translate_context: int = 2
-    llm_model: str = "sub"
+    # Giu truong cu de doc cau hinh/project cu; luong dich AI luon dung role prime.
+    llm_model: str = "prime"
 
     # Long tieng
     tts_provider: str = "Local Voice"
@@ -173,14 +174,17 @@ class Settings:
     ai_model_sub: str = "sub"
     ai_thinking_sub: str = "low"
     ai_model_prime: str = "prime"
-    ai_thinking_prime: str = "medium"
+    ai_thinking_prime: str = "low"
     ocr_ai_model: str = "sub"
-    ocr_ai_batch_size: int = 8
+    # AI Vision chi lay mau vua du de phat hien caption ngan. Khong dung chung
+    # tan suat 15 fps toi uu cho PP-OCR local.
+    ocr_ai_fps: float = 5.0
+    ocr_ai_batch_size: int = 16
     ocr_ai_max_concurrency: int = 4
     ocr_ai_timeout: int = 60
     ocr_ai_max_retries: int = 3
     ocr_ai_image_quality: int = 88
-    ocr_ai_diff_threshold: float = 4.0
+    ocr_ai_diff_threshold: float = 30.0
     ocr_ai_consensus_mode: str = "disabled"
     ocr_ai_consensus_frames: int = 1
     ocr_ai_prompt_version: str = "v1"
@@ -426,6 +430,20 @@ class Settings:
                 settings.ocr_ai_prompt_version = "v1"
             if not hasattr(settings, "ocr_ai_custom_prompt"):
                 settings.ocr_ai_custom_prompt = ""
+        if old_schema < 14:
+            # Role do tac vu quyet dinh, khong de cau hinh cu route nham sub/prime.
+            settings.ocr_ai_model = "sub"
+            settings.llm_model = "prime"
+            if getattr(settings, "ai_thinking_prime", "medium") == "medium":
+                settings.ai_thinking_prime = "low"
+            if not getattr(settings, "ocr_ai_fps", 0.0):
+                settings.ocr_ai_fps = 5.0
+            if float(getattr(settings, "ocr_ai_fps", 15.0)) >= 10.0:
+                settings.ocr_ai_fps = 5.0
+            if int(getattr(settings, "ocr_ai_batch_size", 8)) <= 8:
+                settings.ocr_ai_batch_size = 16
+            if float(getattr(settings, "ocr_ai_diff_threshold", 4.0)) <= 4.0:
+                settings.ocr_ai_diff_threshold = 30.0
 
         # Migrate legacy AI OCR settings names & server labels
         if "ai_ocr_concurrency" in data and "ocr_ai_max_concurrency" not in data:

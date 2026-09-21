@@ -102,10 +102,13 @@ def run_ai_ocr_pipeline(
     if not key:
         raise ai_gateway.AIGatewayError("Chưa có khóa API cho AI Gateway.")
 
-    actual_model, default_thinking = ai_gateway.resolve_model(
-        model or settings.ocr_ai_model, settings
-    )
+    model_role = ai_gateway.role_for_task("subtitle_extraction")
+    actual_model, default_thinking = ai_gateway.resolve_model(model_role, settings)
     actual_thinking = thinking if thinking else default_thinking
+    if not ai_gateway.capabilities().multi_image:
+        raise ai_gateway.AIGatewayError(
+            "AI Gateway adapter hiện tại không hỗ trợ multi-image cho role 'sub'."
+        )
 
     effective_cache_key = cache_key
     if not effective_cache_key and cache_path:
@@ -114,7 +117,7 @@ def run_ai_ocr_pipeline(
             region=region,
             fps=fps,
             endpoint=ep,
-            model_alias=model,
+            model_alias=model_role,
             actual_model=actual_model,
             thinking=actual_thinking,
             prompt_version=prompt_version,
@@ -132,7 +135,7 @@ def run_ai_ocr_pipeline(
             {
                 "engine": "ai_gateway",
                 "endpoint_hash": ocr_cache.hash_endpoint(ep),
-                "model_alias": model,
+                "model_alias": model_role,
                 "actual_model": actual_model,
                 "thinking": actual_thinking,
                 "prompt_version": prompt_version,
@@ -161,7 +164,7 @@ def run_ai_ocr_pipeline(
         on_log(
             f"OCR AI Architecture: Chunk Extraction ({chunk_duration:g}s) -> "
             f"Visual Selector -> Batch Scheduler (max={max_concurrency}) -> "
-            f"AI Gateway ({actual_model})"
+            f"AI Gateway role=sub ({actual_model}); input=multi-image"
         )
         if completed_checkpoint:
             on_log(f"Dùng lại checkpoint OCR AI: {len(completed_checkpoint)} đoạn đã hoàn thành.")
@@ -177,6 +180,7 @@ def run_ai_ocr_pipeline(
     total_segments = 0
     total_representatives = 0
     total_images = 0
+    total_upload_bytes = 0
     total_requests = 0
     cache_hits = len(completed_checkpoint)
     cache_misses = 0
@@ -311,6 +315,7 @@ def run_ai_ocr_pipeline(
                         )
 
                 total_images += len(items)
+                total_upload_bytes += sum(len(item.get_image_bytes()) for item in items)
                 batches = media.chunk_sequence(items, max(1, int(batch_size)))
                 total_requests += len(batches)
 
@@ -433,6 +438,7 @@ def run_ai_ocr_pipeline(
             f"OCR AI Metrics: sampled={sampled_frames}, rejected={rejected_frames}, "
             f"segments={total_segments}, representatives={total_representatives}, "
             f"images={total_images}, requests={total_requests}, "
+            f"uploaded={total_upload_bytes / (1024 * 1024):.2f}MiB, "
             f"avg_batch={avg_b:.1f}, latency={sched_now.avg_latency:.2f}s, "
             f"retries={retries_delta}, cache_hits={cache_hits}, "
             f"cache_misses={cache_misses}, elapsed={elapsed:.2f}s, "
@@ -558,9 +564,8 @@ def read_frames_ai(
     if not key:
         raise ai_gateway.AIGatewayError("Chưa có khóa API cho AI Gateway.")
 
-    actual_model, default_thinking = ai_gateway.resolve_model(
-        model or settings.ocr_ai_model, settings
-    )
+    model_role = ai_gateway.role_for_task("subtitle_extraction")
+    actual_model, default_thinking = ai_gateway.resolve_model(model_role, settings)
     actual_thinking = thinking if thinking else default_thinking
 
     total = len(frames)

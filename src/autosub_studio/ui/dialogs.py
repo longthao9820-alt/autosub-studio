@@ -238,12 +238,12 @@ class AIGatewayDialog(QDialog):
 
         self.thinking_prime = QComboBox()
         self.thinking_prime.addItems(["none", "low", "medium", "high"])
-        self.thinking_prime.setCurrentText(settings.ai_thinking_prime or "medium")
+        self.thinking_prime.setCurrentText(settings.ai_thinking_prime or "low")
 
         self.btn_test_prime = QPushButton("Test Model Prime")
         self.btn_test_prime.clicked.connect(self._test_prime_model)
-        self.btn_test_vision_prime = QPushButton("Test Vision Prime")
-        self.btn_test_vision_prime.clicked.connect(self._test_prime_vision)
+        self.btn_test_vision_prime = QPushButton("Test Dịch Prime")
+        self.btn_test_vision_prime.clicked.connect(self._test_prime_translation)
 
         prime_row = QHBoxLayout()
         prime_row.addWidget(self.model_prime, 1)
@@ -327,7 +327,7 @@ class AIGatewayDialog(QDialog):
             return
         self._start_vision_worker(ep, key, model, thinking, self.btn_test_vision_sub)
 
-    def _test_prime_vision(self) -> None:
+    def _test_prime_translation(self) -> None:
         ep = self.endpoint.text().strip()
         key = self.api_key.text().strip()
         model = self.model_prime.text().strip()
@@ -338,7 +338,18 @@ class AIGatewayDialog(QDialog):
         if not model:
             self._set_status("Lỗi: Chưa chỉ định tên model.", "Error")
             return
-        self._start_vision_worker(ep, key, model, thinking, self.btn_test_vision_prime)
+        self._set_status(f"Đang kiểm tra dịch structured với role prime '{model}'...", "Muted")
+        ok, msg = ai_gateway.test_translation_role(
+            ep, key, model=model, thinking=thinking
+        )
+        self._set_status(
+            msg if ok else ai_gateway._sanitize_error_text(msg),
+            "Ok" if ok else "Error",
+        )
+
+    # Alias de code/test cu van goi duoc, nhung hanh vi dung la test dich prime.
+    def _test_prime_vision(self) -> None:
+        self._test_prime_translation()
 
     def _start_vision_worker(
         self,

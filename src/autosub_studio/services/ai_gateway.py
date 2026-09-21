@@ -8,11 +8,48 @@ import json
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .settings import Settings
+
+ROLE_SUBTITLE_EXTRACTION = "sub"
+ROLE_SUBTITLE_TRANSLATION = "prime"
+
+
+@dataclass(frozen=True)
+class GatewayCapabilities:
+    """Nhung kieu tac vu ma adapter OpenAI-compatible hien tai thuc su ho tro.
+
+    Day la contract cua adapter, khong phai suy doan ve nha cung cap dung sau
+    Gateway. Khi Gateway co endpoint media chinh thuc, adapter co the mo rong
+    contract nay ma khong lam ro ri ten vendor vao pipeline nghiep vu.
+    """
+
+    text: bool = True
+    structured_text: bool = True
+    image: bool = True
+    multi_image: bool = True
+    video: bool = False
+    media_upload: bool = False
+
+
+def capabilities() -> GatewayCapabilities:
+    """Tra ve kha nang cua adapter dang duoc cai dat, khong tu bia endpoint."""
+    return GatewayCapabilities()
+
+
+def role_for_task(task: str) -> str:
+    """Anh xa tac vu cua AutoSub sang role logic do Gateway quan ly."""
+    clean = (task or "").strip().casefold()
+    if clean in {"translation", "subtitle_translation", "translate", "prime"}:
+        return ROLE_SUBTITLE_TRANSLATION
+    if clean in {"extraction", "subtitle_extraction", "ocr", "vision", "sub"}:
+        return ROLE_SUBTITLE_EXTRACTION
+    raise ValueError(f"Không nhận diện được loại tác vụ AI Gateway: {task}")
+
 
 DEFAULT_TIMEOUT = 60.0
 TEST_TIMEOUT = 15.0
@@ -668,6 +705,49 @@ def test_model(
         return True, f"Model '{model}' hoạt động tốt. Phản hồi: {reply.strip()[:60]}"
     except Exception as exc:
         return False, f"Lỗi kiểm tra model '{model}': {exc}"
+
+
+def test_translation_role(
+    endpoint: str,
+    api_key: str,
+    *,
+    model: str,
+    thinking: str = "",
+    timeout: float = TEST_TIMEOUT,
+) -> tuple[bool, str]:
+    """Kiem tra role prime bang mot structured translation request nho."""
+    try:
+        reply = chat_completion(
+            endpoint,
+            api_key,
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate subtitle items and return JSON only: "
+                        '{"translations":[{"id":1,"text":"..."}]}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": '{"target":"English","items":[{"id":1,"text":"等一下"}]}',
+                },
+            ],
+            thinking=thinking,
+            timeout=timeout,
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(reply.strip().removeprefix("```json").removesuffix("```").strip())
+        items = parsed.get("translations") if isinstance(parsed, dict) else None
+        if not isinstance(items, list) or not any(
+            isinstance(item, dict) and item.get("id") == 1 and str(item.get("text", "")).strip()
+            for item in items
+        ):
+            return False, f"Role prime '{model}' trả structured translation không hợp lệ."
+        return True, f"Role prime '{model}': structured translation OK."
+    except Exception as exc:
+        return False, f"Lỗi kiểm tra role prime '{model}': {exc}"
 
 
 def image_to_base64_url(image_data: bytes | Path | str, mime: str = "image/jpeg") -> str:

@@ -743,8 +743,8 @@ class TestUIDialogAndWiring:
     def test_translate_panel_options(self, qapp) -> None:
         panel = TranslatePanel()
         model_items = [panel.model.itemText(i) for i in range(panel.model.count())]
-        assert "sub" in model_items
-        assert "prime" in model_items
+        assert model_items == ["prime"]
+        assert not panel.model.isEnabled()
         assert not any("claude" in m.lower() for m in model_items)
 
         provider_items = [panel.provider.itemText(i) for i in range(panel.provider.count())]

@@ -930,7 +930,7 @@ class MainWindow(QMainWindow):
             self._log("Lỗi: Chưa nhập Endpoint AI Gateway.")
             return
 
-        alias = getattr(self.settings, "ocr_ai_model", "sub") or "sub"
+        alias = ai_gateway.role_for_task("subtitle_extraction")
         model, thinking = ai_gateway.resolve_model(alias, self.settings)
         if not model:
             self.subtitle_panel.status.setText("Lỗi: Chưa chỉ định tên model.")
@@ -1538,6 +1538,7 @@ class MainWindow(QMainWindow):
                 task=ctx,
                 api_key=Settings.get_secret("ai_gateway_key"),
                 glossary={},
+                db=self.db,
             )
             return P.run_script([P.STEP_OCR], pc)
 
@@ -2303,6 +2304,7 @@ class MainWindow(QMainWindow):
             store=self.store,
             project=self.project,
             task=task,
+            db=self.db,
         )
 
     # ------------------------------------------------------------------ tac vu
@@ -2408,6 +2410,7 @@ class MainWindow(QMainWindow):
                 task=ctx,
                 api_key=api_key,
                 glossary=glossary,
+                db=self.db,
             )
             return P.run_script(names, pc)
 
@@ -2444,7 +2447,7 @@ class MainWindow(QMainWindow):
     def _on_task_log(self, task_id: str, message: str) -> None:
         self._logs.setdefault(task_id, []).append(message)
         self.logAppended.emit(message)
-        if message.strip().startswith("OCR AI Metrics:"):
+        if message.strip().startswith(("OCR AI Metrics:", "Translation Metrics:")):
             parts = message.strip().split(":", 1)
             heading = parts[0].strip() + ":"
             fields = [f.strip() for f in parts[1].split(",") if f.strip()]
@@ -2711,10 +2714,45 @@ class MainWindow(QMainWindow):
         provider = self.settings.translate_provider
         api_key = Settings.get_secret("ai_gateway_key")
         settings = self.settings
+        project = self.project
+        store = self.store
         glossary = self.translate_panel.glossary_dict()
         from ..providers import translate as tr
 
         def job(ctx: TaskContext) -> str:
+            if tr.is_ai_provider(provider):
+                request = tr.TranslationRequest(
+                    texts=texts,
+                    ids=list(range(len(texts))),
+                    source=settings.source_language,
+                    target=settings.target_language,
+                    glossary=glossary,
+                    extra_prompt=settings.translate_prompt,
+                )
+
+                def save_selected(ids: list[int], values: list[str]) -> None:
+                    for item_id, value in zip(ids, values, strict=True):
+                        if 0 <= item_id < len(cues) and value.strip():
+                            cues[item_id].translation = value.strip()
+                    store.save(project)
+
+                out = tr.translate_document(
+                    provider,
+                    request,
+                    api_key=api_key,
+                    should_cancel=lambda: ctx.token.cancelled is True,
+                    on_progress=ctx.progress,
+                    on_chunk_complete=save_selected,
+                    on_log=ctx.log,
+                )
+                done = 0
+                for cue, text in zip(cues, out, strict=True):
+                    if text.strip():
+                        cue.translation = text.strip()
+                        done += 1
+                store.save(project)
+                return f"Da dich {done} cau dang chon bang AI Gateway role prime."
+
             done = 0
             batches = tr.chunk(texts, 20)
             offset = 0
@@ -2727,7 +2765,10 @@ class MainWindow(QMainWindow):
                     glossary=glossary,
                 )
                 out = tr.translate_batch(
-                    provider, request, api_key=api_key, model=settings.llm_model
+                    provider,
+                    request,
+                    api_key=api_key,
+                    model=ai_gateway.role_for_task("subtitle_translation"),
                 )
                 for j, text in enumerate(out):
                     if text.strip():

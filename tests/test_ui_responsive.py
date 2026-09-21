@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QScrollArea
 
@@ -11,7 +13,9 @@ from autosub_studio.ui.main_window import MainWindow
 
 def test_workflow_panels_use_vertical_scroll_areas(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-    Settings.config_path().write_text("{}", encoding="utf-8")
+    Settings.config_path().write_text(
+        json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+    )
 
     window = MainWindow()
     window.resize(1366, 768)

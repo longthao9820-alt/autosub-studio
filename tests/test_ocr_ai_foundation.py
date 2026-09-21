@@ -138,17 +138,20 @@ class TestZeroLocalRapidOCRInAI:
         assert pc.project.doc.cues[0].text == "Test AI Cue"
 
 
-# ========================================================== 2. Settings v13 and Migration
-class TestSettingsV13AndMigration:
+# ========================================================== 2. Settings v14 and Migration
+class TestSettingsV14AndMigration:
     def test_default_settings_schema_and_values(self) -> None:
         s = Settings()
-        assert s.schema_version == 13
-        assert s.ocr_ai_batch_size == 8
+        assert s.schema_version == 14
+        assert s.ocr_ai_fps == 5.0
+        assert s.ocr_ai_batch_size == 16
         assert s.ocr_ai_max_concurrency == 4
         assert s.ocr_ai_timeout == 60
         assert s.ocr_ai_max_retries == 3
         assert s.ocr_ai_image_quality == 88
-        assert s.ocr_ai_diff_threshold == 4.0
+        assert s.ocr_ai_diff_threshold == 30.0
+        assert s.ocr_ai_model == "sub"
+        assert s.llm_model == "prime"
         assert s.ocr_ai_consensus_mode == "disabled"
         assert s.ocr_ai_consensus_frames == 1
         assert s.ocr_ai_prompt_version == "v1"
@@ -162,7 +165,7 @@ class TestSettingsV13AndMigration:
         cfg_file = tmp_path / "config.json"
         monkeypatch.setattr(Settings, "config_path", staticmethod(lambda *_args: cfg_file))
 
-        # Older schema 12 payload without v13 fields
+        # Older schema 12 payload without v13/v14 fields
         old_data = {
             "schema_version": 12,
             "ocr_batch_size": 10,  # user custom local batch
@@ -175,14 +178,17 @@ class TestSettingsV13AndMigration:
         cfg_file.write_text(json.dumps(old_data, ensure_ascii=False), encoding="utf-8")
 
         loaded = Settings.load()
-        assert loaded.schema_version == 13
+        assert loaded.schema_version == 14
         assert loaded.ocr_batch_size == 10  # preserved local
-        assert loaded.ocr_ai_batch_size == 8  # default
+        assert loaded.ocr_ai_fps == 5.0
+        assert loaded.ocr_ai_batch_size == 16
         assert loaded.ocr_ai_max_concurrency == 4
         assert loaded.ocr_ai_timeout == 60
         assert loaded.ocr_ai_max_retries == 3
         assert loaded.ocr_ai_image_quality == 88
-        assert loaded.ocr_ai_diff_threshold == 4.0
+        assert loaded.ocr_ai_diff_threshold == 30.0
+        assert loaded.ocr_ai_model == "sub"
+        assert loaded.llm_model == "prime"
         assert loaded.ocr_ai_consensus_mode == "disabled"
         assert loaded.ocr_ai_consensus_frames == 1
         assert loaded.ocr_ai_prompt_version == "v1"
@@ -194,7 +200,7 @@ class TestSettingsV13AndMigration:
         monkeypatch.setattr(Settings, "config_path", staticmethod(lambda *_args: cfg_file))
 
         s = Settings(
-            schema_version=13,
+            schema_version=14,
             ocr_ai_batch_size=16,
             ocr_ai_max_concurrency=8,
             ocr_ai_timeout=90,

@@ -5,9 +5,9 @@ máy của bạn, bảo đảm an toàn dữ liệu và quyền riêng tư.
 
 ---
 
-## Điểm mới trong phiên bản 2.1.0
+## Điểm mới trong phiên bản 2.2.0
 
-- **Nhận dạng Vision AI thực thụ (True AI Recognition):** Tách phụ đề video bằng mô hình thị giác AI (`sub` / `prime`) qua AI Gateway, tuyệt đối không fallback âm thầm về local OCR.
+- **Nhận dạng Vision AI thực thụ (True AI Recognition):** Tách phụ đề video bằng role `sub` qua AI Gateway, tuyệt đối không fallback âm thầm về local OCR; role `prime` dành riêng cho dịch phụ đề.
 - **Chỉ xử lý vùng cắt (Crop-only):** Cắt chính xác vùng phụ đề (`region crop`), chỉ gửi ảnh vùng phụ đề lên AI, loại bỏ chữ gây nhiễu bên ngoài, bảo mật và tiết kiệm băng thông.
 - **Bộ lọc thị giác (Visual Filter):** Tự động lọc bỏ khung hình tĩnh và trùng lặp trước khi gửi, giảm số lượng request thực tế trên 70%.
 - **Điều phối lô toàn cục (Batch & Global Scheduler):** Gom nhóm frame theo lô (`batch_size`), kiểm soát số luồng đồng thời toàn cục (`max_concurrency`), chống tràn hàng đợi.
@@ -77,9 +77,10 @@ AI Gateway cho phép kết nối các mô hình AI ngôn ngữ lớn theo chuẩ
 
 1. Vào tab **Cấu Hình Chung** → bấm nút **AI Gateway ⚙** (trong nhóm cấu hình dịch và AI).
 2. Nhập **Endpoint** (ví dụ URL gateway tương thích chuẩn OpenAI) và **Khóa API**. Khóa được mã hóa an toàn theo tài khoản Windows trong `Data\config\secrets.dat`.
-3. Chọn hoặc cấu hình mô hình:
-   - `sub`: tối ưu cho tốc độ và tác vụ dịch thuật phụ đề chuẩn xác.
-   - `prime`: mô hình suy luận nâng cao cho các ngữ cảnh phức tạp.
+3. Cấu hình role model do Gateway định tuyến:
+   - `sub`: dành riêng cho trích xuất chữ phụ đề từ hình/video.
+   - `prime`: dành riêng cho dịch nội dung phụ đề/SRT.
+   - Người dùng không cần chọn role ở từng tác vụ: **Lấy Sub** tự dùng `sub`, **Dịch Sub** tự dùng `prime`.
    - Mức độ suy luận (*Thinking level*): tắt (`off`), thấp (`low`), vừa (`medium`), cao (`high`).
 4. Bấm **Kiểm tra kết nối** để kiểm tra trực tiếp endpoint và danh sách model khả dụng.
 
@@ -94,6 +95,7 @@ AI Gateway cho phép kết nối các mô hình AI ngôn ngữ lớn theo chuẩ
   - Dành cho video có phụ đề cứng (hardsub).
   - Vùng nhận dạng trực quan tại màn hình *Screen Edit* với khung chữ nhật điều chỉnh linh hoạt.
   - Sử dụng engine PP-OCRv6 Medium hoặc PP-OCRv4 Mobile, hỗ trợ lọc màu chữ (`#RRGGBB`) và lọc chiều cao chữ để loại bỏ logo/quảng cáo.
+  - Khi chọn AI Gateway, local chỉ xác định vùng và thời điểm thay đổi; role `sub` đọc chữ từ các frame đại diện theo lô. Không fallback âm thầm sang PP-OCR.
   - Chế độ quét mốc thời gian 2 lần giúp mốc khớp chính xác với khung hình xuất hiện/biến mất của phụ đề.
   - Tự động xuất tệp phụ đề `.srt` cùng tên bên cạnh tệp video gốc.
 
@@ -103,7 +105,7 @@ Thao tác dịch xử lý trực tiếp trên danh sách câu phụ đề, khôn
 
 - **Lựa chọn dịch:**
   - `Google (miễn phí)`: dịch nhanh qua Google Dịch (cần Internet).
-  - `AI Gateway` / `Server AI API`: dịch thông minh qua AI Gateway với model `sub` hoặc `prime`, bảo toàn cấu trúc 1:1, hỗ trợ ngữ cảnh trước/sau.
+  - `AI Gateway` / `Server AI API`: tự dùng role `prime`, ưu tiên gửi toàn bộ SRT trong một structured task; file lớn được chia theo kích thước và chỉ sửa lại ID/chunk lỗi. Timestamp gốc không đổi.
   - `Không dịch (giữ nguyên)`: giữ nguyên nội dung gốc để biên tập thủ công.
 - **Bảng thuật ngữ (Glossary):** cố định cách dịch tên riêng, địa danh, thuật ngữ chuyên ngành.
 - **Kiểm tra lỗi phụ đề:** bấm **Kiểm tra time** để phát hiện các câu bị trùng lấn thời gian, thời lượng quá ngắn hoặc khoảng trống bất thường.
@@ -256,6 +258,8 @@ Sản phẩm hoàn chỉnh sẽ được tạo ra tại thư mục `dist\AutoSub
 ### Đo hiệu năng AI OCR (AI OCR Benchmark)
 
 Hệ thống cung cấp công cụ đo kiểm hiệu năng lặp lại được (`scripts\benchmark_ai_ocr.py`), chạy hoàn toàn nội bộ bằng dữ liệu khung hình thị giác mô phỏng (synthetic visual manifests), **không gọi mạng bên ngoài và không tốn chi phí API**.
+
+Kết quả benchmark Gateway thực tế của đợt refactor được ghi tại [AI_GATEWAY_REFACTOR_BENCHMARK.md](AI_GATEWAY_REFACTOR_BENCHMARK.md).
 
 Lệnh thực thi:
 

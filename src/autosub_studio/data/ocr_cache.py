@@ -180,7 +180,9 @@ def load_frame_cache(
     if not path.is_file():
         return {}
     try:
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             connection.execute("PRAGMA busy_timeout=5000;")
             rows = connection.execute(
                 "SELECT frame_idx, rows_json FROM frames WHERE cache_key=? AND frame_idx<?",
@@ -228,7 +230,9 @@ def save_frame_batch(
     path = Path(cache_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             _init_db(connection)
             payload = []
             for index, rows in rows_by_index.items():
@@ -262,7 +266,9 @@ def load_segment_checkpoint(
     if not path.is_file():
         return {}
     try:
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             connection.execute("PRAGMA busy_timeout=5000;")
             _init_db(connection)
             rows = connection.execute(
@@ -300,7 +306,9 @@ def load_segment_by_hash(
     if not path.is_file():
         return {}
     try:
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             connection.execute("PRAGMA busy_timeout=5000;")
             _init_db(connection)
             rows = connection.execute(
@@ -337,7 +345,9 @@ def save_segment_checkpoint(
     path = Path(cache_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             _init_db(connection)
             payload = []
             for seg in segments:
@@ -406,7 +416,9 @@ def save_cache_meta(
     path = Path(cache_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             _init_db(connection)
             connection.execute(
                 "INSERT OR REPLACE INTO ai_cache_meta("
@@ -440,7 +452,9 @@ def get_cache_meta(cache_path: str | Path | None, cache_key: str) -> dict[str, A
     if not path.is_file():
         return None
     try:
-        with _DB_LOCK, sqlite3.connect(str(path), timeout=30.0) as connection:
+        with _DB_LOCK, contextlib.closing(
+            sqlite3.connect(str(path), timeout=30.0)
+        ) as connection:
             _init_db(connection)
             row = connection.execute(
                 "SELECT engine, endpoint_hash, model_alias, actual_model, thinking, "

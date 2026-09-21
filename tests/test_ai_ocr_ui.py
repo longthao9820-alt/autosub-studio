@@ -35,16 +35,16 @@ class TestSubtitlePanelAiOcrUi:
         try:
             assert isinstance(panel.ai_settings_box, QGroupBox)
 
-            # Model: sub, prime
+            # Extraction task fixes the Gateway role to sub.
             assert [panel.ocr_ai_model.itemText(i) for i in range(panel.ocr_ai_model.count())] == [
                 "sub",
-                "prime",
             ]
+            assert not panel.ocr_ai_model.isEnabled()
 
-            # Batch: 1-64, default 8
+            # Batch: 1-64, default 16
             assert panel.ocr_ai_batch.minimum() == 1
             assert panel.ocr_ai_batch.maximum() == 64
-            assert panel.ocr_ai_batch.value() == 8
+            assert panel.ocr_ai_batch.value() == 16
 
             # Concurrency: 1-16, default 4
             assert panel.ocr_ai_concurrency.minimum() == 1
@@ -67,12 +67,12 @@ class TestSubtitlePanelAiOcrUi:
             assert panel.ocr_ai_quality.maximum() == 100
             assert panel.ocr_ai_quality.value() == 88
 
-            # Diff: QDouble 0.1-50, step 0.5, default 4.0
+            # Diff: QDouble 0.1-50, step 0.5, default 30.0
             assert isinstance(panel.ocr_ai_diff, QDoubleSpinBox)
             assert panel.ocr_ai_diff.minimum() == 0.1
             assert panel.ocr_ai_diff.maximum() == 50.0
             assert panel.ocr_ai_diff.singleStep() == 0.5
-            assert panel.ocr_ai_diff.value() == 4.0
+            assert panel.ocr_ai_diff.value() == 30.0
 
             # Mode combo: Nhanh (data fast), Chinh xac (data accuracy)
             assert panel.ocr_ai_mode.count() == 2
@@ -178,7 +178,7 @@ class TestSubtitlePanelAiOcrUi:
 
             assert panel.ocr_server.currentText() == "AI Gateway"
             assert panel.is_ai_selected()
-            assert panel.ocr_ai_model.currentText() == "prime"
+            assert panel.ocr_ai_model.currentText() == "sub"
             assert panel.ocr_ai_batch.value() == 12
             assert panel.ocr_ai_concurrency.value() == 6
             assert panel.ocr_ai_timeout.value() == 120

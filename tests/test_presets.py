@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -131,7 +132,9 @@ class TestProjectPresetIntegration:
 
     def test_default_preset_affects_new_projects_only(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         window = MainWindow()
         store = window.store
@@ -171,7 +174,9 @@ class TestProjectPresetIntegration:
 
     def test_apply_preset_updates_current_project_only(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         window = MainWindow()
         store = window.store
@@ -232,7 +237,9 @@ class TestUIControlsAndExportDialog:
 
     def test_render_toolbar_controls_and_tooltip(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         window = MainWindow()
 
@@ -266,7 +273,9 @@ class TestUIControlsAndExportDialog:
 
     def test_output_folder_separate_from_download_folder(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         window = MainWindow()
         window.settings.download_folder = str(tmp_path / "downloads")

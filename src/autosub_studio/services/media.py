@@ -683,6 +683,22 @@ def _collect_pts(lines: list[str]) -> list[float]:
     return out
 
 
+def _align_frame_pts(stamps: list[float], frame_count: int, gap: float) -> list[float]:
+    """Can moc showinfo voi so tep FFmpeg thuc su ghi ra.
+
+    FFmpeg co the cho ``showinfo`` nhin thay khung dung ngay moc ``-t`` nhung
+    muxer khong ghi khung bien do ra tep. Truoc day chi lech mot moc nhu vay
+    cung lam bo toan bo PTS that va dung ``i / configured_fps``; video 25 fps
+    lay moi hai frame vi the bi nen timeline 25/30 khi configured_fps=15.
+    """
+    count = max(0, int(frame_count))
+    if count == 0:
+        return []
+    if len(stamps) >= count:
+        return list(stamps[:count])
+    return [i * gap for i in range(count)]
+
+
 def extract_frames(
     ff: FFmpeg,
     video: str | Path,
@@ -727,8 +743,7 @@ def extract_frames(
     )
     paths = sorted(d.glob("frame_*.png"))
     stamps = _collect_pts(lines)
-    if len(stamps) != len(paths):  # log khong doc duoc thi quay ve moc uoc luong
-        stamps = [i * gap for i in range(len(paths))]
+    stamps = _align_frame_pts(stamps, len(paths), gap)
     return list(zip(stamps, paths, strict=False))
 
 
@@ -1087,8 +1102,7 @@ def extract_video_chunks(
             break
 
         stamps = _collect_pts(lines)
-        if len(stamps) != len(paths):
-            stamps = [i * gap for i in range(len(paths))]
+        stamps = _align_frame_pts(stamps, len(paths), gap)
 
         absolute_timed: list[tuple[float, Path]] = []
         for s_time, p in zip(stamps, paths, strict=False):

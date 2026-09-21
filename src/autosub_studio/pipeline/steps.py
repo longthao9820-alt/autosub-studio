@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -12,10 +13,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from ..core import editing, formats, ocr_common
 from ..core.models import Cue, SubtitleDoc
 from ..data import ocr_cache
+from ..data.db import TranslationCache
 from ..data.project import ProjectData, ProjectStore
 from ..providers import asr, diarize, ocr, ocr_ai, ocr_filter, separate, translate, tts
 from ..services import ai_gateway, gpu, media
@@ -75,6 +78,7 @@ class PipelineContext:
     task: TaskContext
     api_key: str = ""
     glossary: dict[str, str] = field(default_factory=dict)
+    db: Any | None = None
 
     @property
     def token(self) -> CancelToken:
@@ -411,9 +415,9 @@ def step_ocr(pc: PipelineContext) -> str:
             raise StepError("Chưa cấu hình Endpoint AI Gateway cho OCR AI.")
         if not key.strip():
             raise StepError("Chưa có khóa API cho AI Gateway.")
-        model_alias = getattr(s, "ocr_ai_model", "sub") or "sub"
+        model_alias = ai_gateway.role_for_task("subtitle_extraction")
         actual_model, default_thinking = ai_gateway.resolve_model(model_alias, s)
-        fps = _ocr_frame_rate(s.ocr_fps, 0.0, fast_nts=False)
+        fps = _ocr_frame_rate(getattr(s, "ocr_ai_fps", 5.0), 0.0, fast_nts=False)
         cache_path = (
             (Path(pc.project.folder) / "ocr_cache.sqlite3")
             if s.ocr_cache_enabled
@@ -683,9 +687,140 @@ def step_translate(pc: PipelineContext) -> str:
     ready, reason = translate.provider_ready(s.translate_provider, pc.api_key)
     if not ready:
         raise StepError(reason)
-    pending = [(i, c) for i, c in enumerate(cues) if c.text.strip()]
+    same_target = pc.project.doc.target_language == s.target_language
+    if not same_target:
+        # Ban dich cu thuoc ngon ngu khac khong duoc tinh la checkpoint hop le.
+        # Xoa truoc request dau tien de neu dung giua chung, lan sau chi resume
+        # dung cac cau da duoc checkpoint voi target moi.
+        for cue in cues:
+            cue.translation = ""
+        pc.project.doc.target_language = s.target_language
+        pc.save()
+    pending = [
+        (i, c)
+        for i, c in enumerate(cues)
+        if c.text.strip() and (not same_target or not c.translation.strip())
+    ]
+
+    cache_keys: dict[int, str] = {}
+    cache_fingerprint = ""
+    if translate.is_ai_provider(s.translate_provider):
+        actual_prime, prime_thinking = ai_gateway.resolve_model(
+            ai_gateway.role_for_task("subtitle_translation"), s
+        )
+        cache_identity = json.dumps(
+            {
+                "document": [cue.text for cue in cues],
+                "model": actual_prime,
+                "thinking": prime_thinking,
+                "prompt": s.translate_prompt,
+                "glossary": pc.glossary,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        cache_fingerprint = hashlib.sha256(cache_identity.encode("utf-8")).hexdigest()
+        cache_keys = {
+            cue_index: translate.cache_key(
+                cue.text,
+                s.source_language,
+                s.target_language,
+                s.translate_provider,
+                role=ai_gateway.role_for_task("subtitle_translation"),
+                prompt_version=translate.TRANSLATION_PROMPT_VERSION,
+                settings_fingerprint=cache_fingerprint,
+            )
+            for cue_index, cue in pending
+        }
+        if pc.db is not None and cache_keys:
+            wanted = set(cache_keys.values())
+            with pc.db.session() as session:
+                rows = session.query(TranslationCache).filter(
+                    TranslationCache.key.in_(wanted)
+                ).all()
+            cached_by_key = {row.key: row.target_text for row in rows}
+            cache_hits = 0
+            for cue_index, cue in pending:
+                cached_text = cached_by_key.get(cache_keys[cue_index], "").strip()
+                if cached_text:
+                    cue.translation = cached_text
+                    cache_hits += 1
+            if cache_hits:
+                pc.log(f"Translation cache: dùng lại {cache_hits} câu.")
+                pc.project.doc.target_language = s.target_language
+                pc.save()
+                pending = [
+                    (cue_index, cue)
+                    for cue_index, cue in pending
+                    if not cue.translation.strip()
+                ]
     if not pending:
+        if any(c.translation.strip() for c in cues):
+            return "Tat ca cau phu de da co ban dich cho ngon ngu dich hien tai."
         raise StepError("Khong co cau nao co noi dung de dich.")
+
+    if translate.is_ai_provider(s.translate_provider):
+        request = translate.TranslationRequest(
+            texts=[cue.text for _, cue in pending],
+            ids=[cue_index for cue_index, _ in pending],
+            source=s.source_language,
+            target=s.target_language,
+            glossary=pc.glossary,
+            extra_prompt=s.translate_prompt,
+        )
+
+        def save_checkpoint(ids: list[int], values: list[str]) -> None:
+            for cue_index, value in zip(ids, values, strict=True):
+                if 0 <= cue_index < len(cues) and value.strip():
+                    cues[cue_index].translation = value.strip()
+            if pc.db is not None and cache_keys:
+                with pc.db.session() as session:
+                    for cue_index, value in zip(ids, values, strict=True):
+                        key = cache_keys.get(cue_index)
+                        if not key or not value.strip():
+                            continue
+                        row = session.query(TranslationCache).filter(
+                            TranslationCache.key == key
+                        ).one_or_none()
+                        if row is None:
+                            row = TranslationCache(
+                                key=key,
+                                source_text=cues[cue_index].text,
+                                target_text=value.strip(),
+                                provider=f"{s.translate_provider}:prime",
+                            )
+                            session.add(row)
+                        else:
+                            row.target_text = value.strip()
+            pc.project.doc.target_language = s.target_language
+            pc.save()
+
+        try:
+            results = translate.translate_document(
+                s.translate_provider,
+                request,
+                api_key=pc.api_key,
+                max_retries=getattr(s, "ocr_ai_max_retries", 3),
+                should_cancel=lambda: pc.token.cancelled is True,
+                on_progress=pc.progress,
+                on_chunk_complete=save_checkpoint,
+                on_log=pc.log,
+            )
+        except CancelledError:
+            raise
+        except translate.TranslationError as exc:
+            raise StepError(str(exc)) from exc
+
+        done = 0
+        for (_cue_index, cue), text in zip(pending, results, strict=True):
+            if text.strip():
+                cue.translation = text.strip()
+                done += 1
+        pc.project.doc.target_language = s.target_language
+        pc.save()
+        lang = translate.LANGUAGES.get(s.target_language, s.target_language)
+        return f"Da dich {done} cau sang {lang} bang AI Gateway role prime."
+
     batches = translate.chunk([c.text for _, c in pending], max(1, s.translate_batch))
     index = 0
     done = 0
@@ -708,7 +843,7 @@ def step_translate(pc: PipelineContext) -> str:
                 s.translate_provider,
                 request,
                 api_key=pc.api_key,
-                model=s.llm_model,
+                model=ai_gateway.role_for_task("subtitle_translation"),
                 on_log=None,
             )
         except translate.TranslationError as exc:

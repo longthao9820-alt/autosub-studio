@@ -272,15 +272,16 @@ class SubtitlePanel(QWidget):
         )
 
         self.ocr_ai_model = QComboBox()
-        self.ocr_ai_model.addItems(["sub", "prime"])
+        self.ocr_ai_model.addItem("sub", "sub")
+        self.ocr_ai_model.setEnabled(False)
         self.ocr_ai_model.setFixedWidth(70)
         self.ocr_ai_model.setToolTip(
-            "Mô hình Vision AI (sub hoặc prime). Không fallback về local OCR."
+            "Tách phụ đề qua AI Gateway luôn dùng role sub. Không fallback về local OCR."
         )
 
         self.ocr_ai_batch = QSpinBox()
         self.ocr_ai_batch.setRange(1, 64)
-        self.ocr_ai_batch.setValue(8)
+        self.ocr_ai_batch.setValue(16)
         self.ocr_ai_batch.setFixedWidth(60)
         self.ocr_ai_batch.setToolTip(
             "Số frame gửi trong một mẻ xử lý AI (1-64). Không fallback về local."
@@ -327,7 +328,7 @@ class SubtitlePanel(QWidget):
         self.ocr_ai_diff.setRange(0.1, 50.0)
         self.ocr_ai_diff.setSingleStep(0.5)
         self.ocr_ai_diff.setDecimals(1)
-        self.ocr_ai_diff.setValue(4.0)
+        self.ocr_ai_diff.setValue(30.0)
         self.ocr_ai_diff.setFixedWidth(65)
         self.ocr_ai_diff.setToolTip(
             "Ngưỡng khác biệt khung hình (0.1-50.0, bước nhảy 0.5). Không fallback về local."
@@ -915,14 +916,13 @@ class SubtitlePanel(QWidget):
         self.ocr_mode.setCurrentText(mode)
         server = "AI Gateway" if s.ocr_server == "Server AI API" else s.ocr_server
         self.ocr_server.setCurrentText(server)
-        if hasattr(s, "ocr_ai_model") and s.ocr_ai_model:
-            self.ocr_ai_model.setCurrentText(s.ocr_ai_model)
-        self.ocr_ai_batch.setValue(getattr(s, "ocr_ai_batch_size", 8))
+        self.ocr_ai_model.setCurrentIndex(0)
+        self.ocr_ai_batch.setValue(getattr(s, "ocr_ai_batch_size", 16))
         self.ocr_ai_concurrency.setValue(getattr(s, "ocr_ai_max_concurrency", 4))
         self.ocr_ai_timeout.setValue(getattr(s, "ocr_ai_timeout", 60))
         self.ocr_ai_retries.setValue(getattr(s, "ocr_ai_max_retries", 3))
         self.ocr_ai_quality.setValue(getattr(s, "ocr_ai_image_quality", 88))
-        self.ocr_ai_diff.setValue(float(getattr(s, "ocr_ai_diff_threshold", 4.0)))
+        self.ocr_ai_diff.setValue(float(getattr(s, "ocr_ai_diff_threshold", 30.0)))
         ai_consensus = getattr(s, "ocr_ai_consensus_mode", "disabled")
         ai_frames = getattr(s, "ocr_ai_consensus_frames", 1)
         if ai_consensus == "accuracy" or ai_frames >= 3:
@@ -980,7 +980,7 @@ class SubtitlePanel(QWidget):
         s.ocr_mode = self.ocr_mode.currentText()
         s.ocr_server = self.ocr_server.currentText()
         if hasattr(s, "ocr_ai_model"):
-            s.ocr_ai_model = self.ocr_ai_model.currentText()
+            s.ocr_ai_model = "sub"
         s.ocr_ai_batch_size = self.ocr_ai_batch.value()
         s.ocr_ai_max_concurrency = self.ocr_ai_concurrency.value()
         s.ocr_ai_timeout = self.ocr_ai_timeout.value()
@@ -1043,13 +1043,19 @@ class TranslatePanel(QWidget):
             if code != "auto":
                 self.target.addItem(shown, code)
         self.model = QComboBox()
-        self.model.addItem("sub", "sub")
         self.model.addItem("prime", "prime")
+        self.model.setEnabled(False)
+        self.model.setToolTip("Dịch phụ đề qua AI Gateway luôn dùng role prime.")
         self.model.setMinimumWidth(160)
         self.batch = QSpinBox()
         self.batch.setRange(1, 100)
         self.batch.setValue(8)
         self.batch.setFixedWidth(70)
+        self.batch.setEnabled(False)
+        self.batch.setToolTip(
+            "AI Gateway tự chọn whole-file hoặc large chunk theo kích thước; "
+            "batch cũ chỉ còn dùng cho provider không phải AI."
+        )
         self.context = QSpinBox()
         self.context.setRange(0, 5)
         self.context.setFixedWidth(60)
@@ -1164,18 +1170,17 @@ class TranslatePanel(QWidget):
         self.target.setCurrentIndex(j if j >= 0 else 0)
         self.context.setValue(s.translate_context)
         self.batch.setValue(s.translate_batch)
-        model_index = self.model.findData(s.llm_model)
-        if model_index < 0:
-            model_index = self.model.findText(s.llm_model)
-        self.model.setCurrentIndex(model_index if model_index >= 0 else 0)
+        self.model.setCurrentIndex(0)
         self.prompt.setPlainText(s.translate_prompt)
         self.refresh_status()
 
     def refresh_status(self) -> None:
+        provider = self.provider.currentData() or self.provider.currentText()
         ready, reason = translate.provider_ready(
-            self.provider.currentData() or self.provider.currentText(),
+            provider,
             Settings.get_secret("ai_gateway_key"),
         )
+        self.batch.setEnabled(not translate.is_ai_provider(str(provider)))
         self.btn_all.setEnabled(ready)
         self.btn_selected.setEnabled(ready)
         self.status.setText(reason or "San sang.")
@@ -1186,7 +1191,7 @@ class TranslatePanel(QWidget):
         s.target_language = self.target.currentData() or "vi"
         s.translate_context = self.context.value()
         s.translate_batch = self.batch.value()
-        s.llm_model = self.model.currentData() or self.model.currentText() or "sub"
+        s.llm_model = "prime"
         s.translate_prompt = self.prompt.toPlainText().strip()
 
     def glossary_dict(self) -> dict[str, str]:

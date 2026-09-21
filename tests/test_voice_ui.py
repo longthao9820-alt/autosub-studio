@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 from PySide6.QtWidgets import QMessageBox
@@ -310,7 +311,9 @@ class TestMainWindowVoiceWiring:
 
     def test_main_window_has_single_media_player(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         from autosub_studio.ui.main_window import MainWindow
 
@@ -328,7 +331,9 @@ class TestMainWindowVoiceWiring:
 
     def test_on_voice_selected_updates_settings_and_dub_panel(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         from autosub_studio.ui.main_window import MainWindow
 
@@ -345,7 +350,9 @@ class TestMainWindowVoiceWiring:
 
     def test_preview_voice_without_project_uses_sample(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         from autosub_studio.ui.main_window import MainWindow
 
@@ -378,7 +385,9 @@ class TestMainWindowVoiceWiring:
 
     def test_dub_guard_warns_when_model_not_ready(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         from autosub_studio.ui.main_window import MainWindow
 

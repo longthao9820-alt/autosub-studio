@@ -17,13 +17,13 @@ from autosub_studio.version import APP_NAME, APP_VERSION, ORG_NAME, __version__
 
 
 class TestVersionConsistency:
-    """Kiem tra tinh nhat quan cua phien ban trung tam 2.1.0."""
+    """Kiem tra tinh nhat quan cua phien ban trung tam 2.2.0."""
 
     def test_version_constants(self):
-        assert APP_VERSION == "2.1.0"
-        assert __version__ == "2.1.0"
-        assert autosub_studio.APP_VERSION == "2.1.0"
-        assert autosub_studio.__version__ == "2.1.0"
+        assert APP_VERSION == "2.2.0"
+        assert __version__ == "2.2.0"
+        assert autosub_studio.APP_VERSION == "2.2.0"
+        assert autosub_studio.__version__ == "2.2.0"
         assert APP_NAME == "AutoSub Studio"
         assert ORG_NAME == "AutoSubStudio"
 
@@ -71,7 +71,7 @@ class TestSettingsMigration:
         assert loaded.ai_model_sub == "sub"
         assert loaded.ai_model_prime == "prime"
         assert loaded.ai_thinking_sub == "low"
-        assert loaded.ai_thinking_prime == "medium"
+        assert loaded.ai_thinking_prime == "low"
         assert loaded.auto_check_update is True
         assert loaded.output_folder == ""
 
@@ -184,7 +184,9 @@ class TestUIChanges:
 
     def test_b4_is_render_panel_and_dead_controls_absent(self, qapp, tmp_path, monkeypatch):
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-        Settings.config_path().write_text("{}", encoding="utf-8")
+        Settings.config_path().write_text(
+            json.dumps({"workspace": str(tmp_path / "workspace")}), encoding="utf-8"
+        )
 
         window = MainWindow()
 

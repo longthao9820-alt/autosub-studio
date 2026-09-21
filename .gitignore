@@ -26,6 +26,7 @@ build-*/
 dist/
 dist-*/
 /release/
+/release-v*/
 *.spec.bak
 *.egg-info/
 

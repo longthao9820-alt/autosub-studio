@@ -193,6 +193,12 @@ def is_retryable_error(exc: Exception) -> bool:
     ):
         return True
 
+    # Provider nghiep vu co the boc loi Gateway (vi du TranslationError).
+    # Van giu mot retry/backoff policy chung thay vi moi workload tu retry rieng.
+    cause = exc.__cause__
+    if isinstance(cause, Exception) and cause is not exc:
+        return is_retryable_error(cause)
+
     return bool(status_code == 429 or (status_code is not None and 500 <= status_code <= 599))
 
 
@@ -248,25 +254,28 @@ class EndpointPressureManager:
 
     def record_failure(self, exc: Exception) -> None:
         """Ghi nhan loi de giam concurrency thich ung hoac danh dau auth failed."""
+        root = exc
+        while isinstance(root.__cause__, Exception) and root.__cause__ is not root:
+            root = root.__cause__
         with self._lock:
             self._consecutive_successes = 0
-            if isinstance(exc, ai_gateway.AIGatewayAuthError) or getattr(
-                exc, "status_code", None
+            if isinstance(root, ai_gateway.AIGatewayAuthError) or getattr(
+                root, "status_code", None
             ) in (401, 403):
                 self._auth_failed = True
                 return
 
-            status_code = getattr(exc, "status_code", None)
-            is_transient = getattr(exc, "is_transient", False) or (
+            status_code = getattr(root, "status_code", None)
+            is_transient = getattr(root, "is_transient", False) or (
                 status_code in (429,) or (status_code is not None and 500 <= status_code <= 599)
             )
 
             if is_transient or isinstance(
-                exc, (ai_gateway.AIGatewayRateLimitError, ai_gateway.AIGatewayServerError)
+                root, (ai_gateway.AIGatewayRateLimitError, ai_gateway.AIGatewayServerError)
             ):
                 self._consecutive_errors += 1
                 self.current_limit = max(self.min_concurrency, self.current_limit - 1)
-                retry_after = getattr(exc, "retry_after", None)
+                retry_after = getattr(root, "retry_after", None)
                 if retry_after is not None and retry_after > 0:
                     self._backoff_until = max(self._backoff_until, self.clock_fn() + retry_after)
                 elif status_code == 429:
@@ -630,7 +639,13 @@ class AIOCRScheduler:
 
                 self._metrics.record_retry()
 
-                retry_after = getattr(exc, "retry_after", None)
+                retry_source = exc
+                while (
+                    isinstance(retry_source.__cause__, Exception)
+                    and retry_source.__cause__ is not retry_source
+                ):
+                    retry_source = retry_source.__cause__
+                retry_after = getattr(retry_source, "retry_after", None)
                 delay = compute_backoff(
                     attempt,
                     base_delay=self._base_retry_delay,
